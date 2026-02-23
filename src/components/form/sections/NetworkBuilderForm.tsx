@@ -245,7 +245,7 @@ export function NetworkBuilderForm({ onNavigate, disabled }: Props) {
             serviceFilter={serviceFilter}
             stateFilter={stateFilter}
             showMarketplace={showMarketplace}
-            onToggleMarketplace={() => setShowMarketplace((v) => !v)}
+            onToggleMarketplace={marketplaceEnabled && !disabled ? () => setShowMarketplace((v) => !v) : undefined}
             affiliateOrgId={affiliateOrgId}
             onAddLocation={!disabled ? handleAddLocation : undefined}
             onRemoveLocation={!disabled ? handleRemoveLocation : undefined}

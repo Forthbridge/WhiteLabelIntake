@@ -28,6 +28,8 @@ model User {
   sessions         Session[]
   accounts         Account[]
   sectionSnapshots SectionSnapshot[]
+  contractTerms         NetworkContractTerm[] @relation("ContractTermUser")
+  contractTermUpdates   NetworkContractTerm[] @relation("ContractTermUpdater")
 
   @@map("users")
 }
@@ -95,8 +97,9 @@ model Affiliate {
   updatedAt   DateTime   @updatedAt
 
   // Organization role flags
-  isAffiliate Boolean @default(true)
-  isSeller    Boolean @default(false)
+  isAffiliate        Boolean @default(true)
+  isSeller           Boolean @default(false)
+  marketplaceEnabled Boolean @default(false)
 
   // Default scheduling system for all locations
   defaultSchedulingSystem       String? // "office_365" | "google_calendar" | "other"
@@ -477,6 +480,20 @@ model OnboardingFlow {
 
 // ─── Network Contracts (Admin-Managed) ───────────────────────────
 
+enum ContractTermStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum ContractTermInactiveReason {
+  PRICING_CHANGE
+  SERVICE_QUALITY
+  NO_LONGER_NEEDED
+  RELOCATED
+  CONTRACT_EXPIRED
+  OTHER
+}
+
 // ─── Seller Service Models ───────────────────────────────────────
 
 model SellerServiceOffering {
@@ -526,26 +543,41 @@ model NetworkContract {
   affiliate   Affiliate @relation("AffiliateContracts", fields: [affiliateId], references: [id], onDelete: Cascade)
   sellerId    String // The seller (care delivery org)
   seller      Affiliate @relation("SellerContracts", fields: [sellerId], references: [id], onDelete: Cascade)
-  scopeAll    Boolean   @default(true) // true = all seller locations; false = specific locations only
   notes       String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  scopedLocations NetworkContractLocation[]
+  terms NetworkContractTerm[]
 
   @@unique([affiliateId, sellerId])
   @@map("network_contracts")
 }
 
-model NetworkContractLocation {
-  id               String          @id @default(cuid())
+model NetworkContractTerm {
+  id               String                      @id @default(cuid())
   contractId       String
-  contract         NetworkContract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  contract         NetworkContract              @relation(fields: [contractId], references: [id], onDelete: Cascade)
   sellerLocationId String
-  sellerLocation   SellerLocation  @relation(fields: [sellerLocationId], references: [id], onDelete: Cascade)
+  sellerLocation   SellerLocation               @relation(fields: [sellerLocationId], references: [id], onDelete: Cascade)
+
+  status           ContractTermStatus           @default(ACTIVE)
+  inactiveReason   ContractTermInactiveReason?
+  inactiveNote     String?
+
+  startDate        DateTime                     @default(now())
+  endDate          DateTime?
+
+  acceptedPricing  Json?
+  acceptedByUserId String?
+  acceptedByUser   User?                        @relation("ContractTermUser", fields: [acceptedByUserId], references: [id])
+
+  createdAt        DateTime                     @default(now())
+  updatedAt        DateTime                     @updatedAt
+  updatedByUserId  String?
+  updatedByUser    User?                        @relation("ContractTermUpdater", fields: [updatedByUserId], references: [id])
 
   @@unique([contractId, sellerLocationId])
-  @@map("network_contract_locations")
+  @@map("network_contract_terms")
 }
 
 // ─── Seller-Owned Tables ────────────────────────────────────────
@@ -613,7 +645,7 @@ model SellerLocation {
   providerLocations        SellerProviderLocation[]
   serviceConfigs           SellerLocationServiceConfig[]
   subServices              SellerLocationSubService[]
-  networkContractLocations NetworkContractLocation[]
+  contractTerms            NetworkContractTerm[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -705,6 +737,7 @@ model SellerLocationServiceConfig {
   sellerLocation   SellerLocation @relation(fields: [sellerLocationId], references: [id], onDelete: Cascade)
   serviceType      String
   available        Boolean        @default(true)
+  pricePerVisit    Decimal?       @db.Decimal(10, 2) // Overrides org-level SellerServiceOffering.basePricePerVisit
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 

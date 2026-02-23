@@ -45,6 +45,7 @@ export async function submitSellerFlow(): Promise<void> {
   });
 
   if (affiliate?.isAffiliate) {
+    // Ensure self-contract exists; active terms are auto-created by loadNetworkData
     await prisma.networkContract.upsert({
       where: {
         affiliateId_sellerId: {
@@ -52,13 +53,10 @@ export async function submitSellerFlow(): Promise<void> {
           sellerId: ctx.affiliateId,
         },
       },
-      update: {
-        scopeAll: true,
-      },
+      update: {},
       create: {
         affiliateId: ctx.affiliateId,
         sellerId: ctx.affiliateId,
-        scopeAll: true,
       },
     });
   }

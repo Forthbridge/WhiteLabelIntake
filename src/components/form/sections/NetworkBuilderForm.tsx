@@ -2,13 +2,16 @@
 
 import { useState, useEffect, useCallback } from "react";
 import dynamic from "next/dynamic";
+import { toast } from "sonner";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
+import { Checkbox } from "@/components/ui/Checkbox";
 import { NetworkListView } from "@/components/marketplace/NetworkListView";
-import { NetworkManageModal } from "@/components/marketplace/NetworkManageModal";
-import { loadNetworkLocations, loadMyNetworkContracts } from "@/lib/actions/network";
+import { PricingAcceptanceModal } from "@/components/marketplace/PricingAcceptanceModal";
+import { RemoveLocationModal } from "@/components/marketplace/RemoveLocationModal";
+import { loadNetworkData, addLocationTerm, loadSellerPricing } from "@/lib/actions/network";
 import type { NetworkLocationItem, NetworkContractSummary } from "@/lib/actions/network";
 import { SERVICE_TYPES } from "@/lib/validations/section3";
 import { SELLER_SERVICE_TYPES } from "@/lib/validations/seller-services";
@@ -29,20 +32,34 @@ interface Props {
 export function NetworkBuilderForm({ onNavigate, disabled }: Props) {
   const [locations, setLocations] = useState<NetworkLocationItem[]>([]);
   const [contracts, setContracts] = useState<NetworkContractSummary[]>([]);
+  const [marketplaceEnabled, setMarketplaceEnabled] = useState(false);
+  const [affiliateOrgId, setAffiliateOrgId] = useState("");
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [serviceFilter, setServiceFilter] = useState("all");
   const [stateFilter, setStateFilter] = useState("all");
   const [viewMode, setViewMode] = useState<ViewMode>("map");
-  const [showManage, setShowManage] = useState(false);
+  const [showMarketplace, setShowMarketplace] = useState(false);
+
+  // Pricing acceptance modal state
+  const [pricingModal, setPricingModal] = useState<{
+    contractId: string;
+    sellerLocationId: string;
+  } | null>(null);
+
+  // Remove location modal state
+  const [removeModal, setRemoveModal] = useState<{
+    contractId: string;
+    sellerLocationId: string;
+    locationName: string;
+  } | null>(null);
 
   const refresh = useCallback(async () => {
-    const [locs, cons] = await Promise.all([
-      loadNetworkLocations(),
-      loadMyNetworkContracts(),
-    ]);
-    setLocations(locs);
-    setContracts(cons);
+    const data = await loadNetworkData();
+    setLocations(data.locations);
+    setContracts(data.contracts);
+    setMarketplaceEnabled(data.marketplaceEnabled);
+    setAffiliateOrgId(data.affiliateOrgId);
   }, []);
 
   useEffect(() => {
@@ -50,6 +67,9 @@ export function NetworkBuilderForm({ onNavigate, disabled }: Props) {
   }, [refresh]);
 
   const includedCount = locations.filter((l) => l.included).length;
+  const availableCount = showMarketplace
+    ? locations.filter((l) => !l.isSelfOwned && !l.included).length
+    : 0;
 
   // Unique states from all locations for filter
   const uniqueStates = Array.from(new Set(locations.map((l) => l.state).filter(Boolean))).sort();
@@ -62,6 +82,46 @@ export function NetworkBuilderForm({ onNavigate, disabled }: Props) {
       .map((st) => ({ value: st.value, label: st.label })),
   ];
 
+  // Check if a seller already has any active terms (pricing already accepted)
+  function sellerHasActiveTerms(sellerOrgId: string): boolean {
+    const contract = contracts.find((c) => c.sellerId === sellerOrgId);
+    return (contract?.activeTermCount ?? 0) > 0;
+  }
+
+  // Handle "Add to Network" click
+  async function handleAddLocation(location: NetworkLocationItem) {
+    if (sellerHasActiveTerms(location.sellerOrgId)) {
+      // Already have terms for this seller — add directly with pricing snapshot
+      try {
+        const pricingData = await loadSellerPricing(location.contractId);
+        const pricingSnapshot = {
+          services: pricingData.services,
+          snapshotAt: new Date().toISOString(),
+        };
+        await addLocationTerm(location.contractId, location.sellerLocationId, pricingSnapshot);
+        await refresh();
+        toast.success("Location added to network");
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Failed to add location");
+      }
+    } else {
+      // First location from this seller — show pricing acceptance modal
+      setPricingModal({
+        contractId: location.contractId,
+        sellerLocationId: location.sellerLocationId,
+      });
+    }
+  }
+
+  // Handle "Remove" click
+  function handleRemoveLocation(location: NetworkLocationItem) {
+    setRemoveModal({
+      contractId: location.contractId,
+      sellerLocationId: location.sellerLocationId,
+      locationName: location.locationName,
+    });
+  }
+
   if (loading) {
     return <div className="text-muted text-sm py-8 text-center">Loading network...</div>;
   }
@@ -72,7 +132,10 @@ export function NetworkBuilderForm({ onNavigate, disabled }: Props) {
         <div className="mb-4">
           <h3 className="text-base font-heading font-semibold mb-1">Care Network</h3>
           <p className="text-sm text-muted">
-            Your network of care delivery locations. Sellers contracted to your organization appear here automatically.
+            Your network of care delivery locations.
+            {marketplaceEnabled
+              ? " Toggle the marketplace to browse and add available seller locations."
+              : " Sellers contracted to your organization appear here automatically."}
           </p>
         </div>
 
@@ -111,8 +174,21 @@ export function NetworkBuilderForm({ onNavigate, disabled }: Props) {
             </div>
           </div>
 
-          {/* View toggle */}
-          <div className="flex justify-end">
+          {/* View toggle + Marketplace toggle */}
+          <div className="flex justify-between items-center">
+            {/* Marketplace toggle */}
+            {marketplaceEnabled && !disabled ? (
+              <Checkbox
+                name="show-marketplace"
+                checked={showMarketplace}
+                onChange={() => setShowMarketplace((v) => !v)}
+                label="Show Marketplace"
+              />
+            ) : (
+              <div />
+            )}
+
+            {/* View toggle */}
             <div className="inline-flex rounded-lg border border-border/50 overflow-hidden text-sm">
               <button
                 type="button"
@@ -158,6 +234,9 @@ export function NetworkBuilderForm({ onNavigate, disabled }: Props) {
             searchQuery={searchQuery}
             serviceFilter={serviceFilter}
             stateFilter={stateFilter}
+            showMarketplace={showMarketplace}
+            onAddLocation={!disabled ? handleAddLocation : undefined}
+            onRemoveLocation={!disabled ? handleRemoveLocation : undefined}
           />
         ) : (
           <NetworkMapView
@@ -165,6 +244,11 @@ export function NetworkBuilderForm({ onNavigate, disabled }: Props) {
             searchQuery={searchQuery}
             serviceFilter={serviceFilter}
             stateFilter={stateFilter}
+            showMarketplace={showMarketplace}
+            onToggleMarketplace={() => setShowMarketplace((v) => !v)}
+            affiliateOrgId={affiliateOrgId}
+            onAddLocation={!disabled ? handleAddLocation : undefined}
+            onRemoveLocation={!disabled ? handleRemoveLocation : undefined}
           />
         )}
 
@@ -172,12 +256,10 @@ export function NetworkBuilderForm({ onNavigate, disabled }: Props) {
         <div className="flex justify-between items-center mt-4 pt-3 border-t border-border/50">
           <p className="text-sm text-muted">
             {includedCount} location{includedCount !== 1 ? "s" : ""} in your network
+            {showMarketplace && availableCount > 0 && (
+              <span className="text-amber-600"> &middot; {availableCount} available to add</span>
+            )}
           </p>
-          {!disabled && contracts.length > 0 && (
-            <Button variant="secondary" type="button" onClick={() => setShowManage(true)}>
-              Manage
-            </Button>
-          )}
         </div>
       </Card>
 
@@ -190,13 +272,29 @@ export function NetworkBuilderForm({ onNavigate, disabled }: Props) {
         </Button>
       </div>
 
-      {showManage && (
-        <NetworkManageModal
-          locations={locations}
-          contracts={contracts}
-          onClose={() => setShowManage(false)}
-          onRefresh={() => {
+      {pricingModal && (
+        <PricingAcceptanceModal
+          contractId={pricingModal.contractId}
+          sellerLocationId={pricingModal.sellerLocationId}
+          onClose={() => setPricingModal(null)}
+          onAccepted={() => {
+            setPricingModal(null);
             refresh();
+            toast.success("Pricing accepted — location added to network");
+          }}
+        />
+      )}
+
+      {removeModal && (
+        <RemoveLocationModal
+          contractId={removeModal.contractId}
+          sellerLocationId={removeModal.sellerLocationId}
+          locationName={removeModal.locationName}
+          onClose={() => setRemoveModal(null)}
+          onRemoved={() => {
+            setRemoveModal(null);
+            refresh();
+            toast.success("Location removed from network");
           }}
         />
       )}

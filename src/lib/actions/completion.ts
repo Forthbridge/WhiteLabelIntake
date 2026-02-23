@@ -54,14 +54,23 @@ export async function getCompletionStatuses(affiliateId: string): Promise<Record
     statuses[4] = "not_started";
   }
 
-  // Section 5: Care Network — complete when at least 1 location in network
-  const networkContractCount = await prisma.networkContract.count({
-    where: { affiliateId, scopeAll: true },
-  });
-  const networkLocationCount = networkContractCount + await prisma.networkContractLocation.count({
+  // Section 5: Care Network — complete when at least 1 active term in network
+  const allTerms = await prisma.networkContractTerm.findMany({
     where: { contract: { affiliateId } },
+    orderBy: { createdAt: "desc" },
+    select: { contractId: true, sellerLocationId: true, status: true },
   });
-  statuses[5] = networkLocationCount > 0 ? "complete" : "not_started";
+  // Dedupe to latest per contract+location, count ACTIVE
+  const seenTermKeys = new Set<string>();
+  let activeTermCount = 0;
+  for (const t of allTerms) {
+    const key = `${t.contractId}:${t.sellerLocationId}`;
+    if (!seenTermKeys.has(key)) {
+      seenTermKeys.add(key);
+      if (t.status === "ACTIVE") activeTermCount++;
+    }
+  }
+  statuses[5] = activeTermCount > 0 ? "complete" : "not_started";
 
   // Section 9: Care Navigation
   const cn = await prisma.careNavConfig.findFirst({ where: { affiliateId } });

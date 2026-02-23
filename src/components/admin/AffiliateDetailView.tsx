@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card } from "@/components/ui/Card";
@@ -48,8 +48,12 @@ export function AffiliateDetailView({ affiliate, statuses, phaseStatuses = [], s
   // Role state
   const [isAffiliate, setIsAffiliate] = useState(affiliate.isAffiliate);
   const [isSeller, setIsSeller] = useState(affiliate.isSeller);
+  const [mktEnabled, setMktEnabled] = useState(affiliate.marketplaceEnabled);
   const [savingRoles, setSavingRoles] = useState(false);
-  const rolesChanged = isAffiliate !== affiliate.isAffiliate || isSeller !== affiliate.isSeller;
+  const rolesChanged =
+    isAffiliate !== affiliate.isAffiliate ||
+    isSeller !== affiliate.isSeller ||
+    mktEnabled !== affiliate.marketplaceEnabled;
 
   // Network contracts state
   const [contracts, setContracts] = useState<NetworkContractItem[]>([]);
@@ -59,6 +63,14 @@ export function AffiliateDetailView({ affiliate, statuses, phaseStatuses = [], s
   const [selectedSellerId, setSelectedSellerId] = useState("");
   const [contractNotes, setContractNotes] = useState("");
   const [creatingContract, setCreatingContract] = useState(false);
+
+  // Auto-load contracts when affiliate is visible
+  useEffect(() => {
+    if (isAffiliate && !contractsLoaded) {
+      loadContracts();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAffiliate]);
 
   const totalSections = Object.keys(statuses).length;
   const completeSections = Object.values(statuses).filter((s) => s === "complete").length;
@@ -120,7 +132,7 @@ export function AffiliateDetailView({ affiliate, statuses, phaseStatuses = [], s
     }
     setSavingRoles(true);
     try {
-      await updateAffiliateRoles(affiliate.id, { isAffiliate, isSeller });
+      await updateAffiliateRoles(affiliate.id, { isAffiliate, isSeller, marketplaceEnabled: mktEnabled });
       router.refresh();
     } finally {
       setSavingRoles(false);
@@ -139,7 +151,6 @@ export function AffiliateDetailView({ affiliate, statuses, phaseStatuses = [], s
   }
 
   async function loadContracts() {
-    if (contractsLoaded) return;
     const data = await listNetworkContracts(affiliate.id);
     setContracts(data);
     setContractsLoaded(true);
@@ -147,7 +158,8 @@ export function AffiliateDetailView({ affiliate, statuses, phaseStatuses = [], s
 
   async function handleShowContractForm() {
     const sellerList = await listSellers();
-    setSellers(sellerList.filter((s) => s.id !== affiliate.id));
+    const existingSellerIds = new Set(contracts.map((c) => c.sellerId));
+    setSellers(sellerList.filter((s) => s.id !== affiliate.id && !existingSellerIds.has(s.id)));
     setShowContractForm(true);
   }
 
@@ -158,13 +170,11 @@ export function AffiliateDetailView({ affiliate, statuses, phaseStatuses = [], s
       await createNetworkContract({
         affiliateId: affiliate.id,
         sellerId: selectedSellerId,
-        scopeAll: true,
         notes: contractNotes || undefined,
       });
       setShowContractForm(false);
       setSelectedSellerId("");
       setContractNotes("");
-      setContractsLoaded(false);
       await loadContracts();
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to create contract");
@@ -176,7 +186,6 @@ export function AffiliateDetailView({ affiliate, statuses, phaseStatuses = [], s
   async function handleDeleteContract(contractId: string) {
     if (!confirm("Remove this network contract?")) return;
     await deleteNetworkContract(contractId);
-    setContractsLoaded(false);
     await loadContracts();
   }
 
@@ -234,6 +243,22 @@ export function AffiliateDetailView({ affiliate, statuses, phaseStatuses = [], s
             <span className="text-sm font-medium text-brand-black">Seller (Care Delivery)</span>
           </label>
         </div>
+        {isAffiliate && (
+          <div className="mb-4">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={mktEnabled}
+                onChange={(e) => setMktEnabled(e.target.checked)}
+                className="rounded border-border text-brand-teal focus:ring-brand-teal"
+              />
+              <span className="text-sm font-medium text-brand-black">Enable Marketplace</span>
+            </label>
+            <p className="text-xs text-muted ml-6 mt-0.5">
+              Shows &quot;Show Marketplace&quot; toggle in Section 5 so affiliate can browse and add seller locations.
+            </p>
+          </div>
+        )}
         {rolesChanged && (
           <Button variant="cta" onClick={handleSaveRoles} loading={savingRoles} className="px-4 py-2 text-sm">
             Save Roles
@@ -336,30 +361,23 @@ export function AffiliateDetailView({ affiliate, statuses, phaseStatuses = [], s
         </div>
       </Card>
 
-      {/* Network Contracts (only for affiliates) */}
+      {/* Marketplace Visibility (only for affiliates) */}
       {isAffiliate && (
         <Card>
           <div className="flex items-center justify-between mb-4">
-            <h2 className="font-heading font-semibold text-lg">Network Contracts</h2>
+            <h2 className="font-heading font-semibold text-lg">Marketplace Visibility</h2>
             <div className="flex gap-2">
-              {!contractsLoaded && (
-                <Button variant="secondary" className="px-4 py-2 text-sm" onClick={loadContracts}>
-                  Load Contracts
-                </Button>
-              )}
-              {contractsLoaded && (
-                <Button variant="cta" className="px-4 py-2 text-sm" onClick={handleShowContractForm}>
-                  Add Contract
-                </Button>
-              )}
+              <Button variant="cta" className="px-4 py-2 text-sm" onClick={handleShowContractForm}>
+                Add Visibility
+              </Button>
             </div>
           </div>
           <p className="text-xs text-muted mb-4">
-            Controls which sellers/care delivery orgs this affiliate can see in the marketplace.
+            Controls which sellers/care delivery orgs are visible to this affiliate in the marketplace.
           </p>
 
           {contractsLoaded && contracts.length === 0 && !showContractForm && (
-            <p className="text-sm text-muted">No network contracts yet.</p>
+            <p className="text-sm text-muted">No marketplace visibility links yet.</p>
           )}
 
           {contractsLoaded && contracts.length > 0 && (
@@ -367,11 +385,22 @@ export function AffiliateDetailView({ affiliate, statuses, phaseStatuses = [], s
               {contracts.map((contract) => (
                 <div key={contract.id} className="flex items-center justify-between py-2 border-b border-border/50 last:border-0">
                   <div>
-                    <span className="text-sm font-medium text-brand-black">
-                      {contract.sellerName || "Unnamed Seller"}
-                    </span>
-                    <span className="text-xs text-muted ml-2">
-                      {contract.scopeAll ? "All locations" : `${contract.locationCount} locations`}
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-brand-black">
+                        {contract.sellerName || "Unnamed Seller"}
+                      </span>
+                      {contract.activeTermCount > 0 ? (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-success/20 text-success">
+                          {contract.activeTermCount} active
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-amber-100 text-amber-700">
+                          No active locations
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-xs text-muted">
+                      {contract.totalLocationCount} location{contract.totalLocationCount !== 1 ? "s" : ""} available
                     </span>
                     {contract.notes && (
                       <p className="text-xs text-muted mt-0.5">{contract.notes}</p>
@@ -417,7 +446,7 @@ export function AffiliateDetailView({ affiliate, statuses, phaseStatuses = [], s
               </div>
               <div className="flex gap-2">
                 <Button variant="cta" className="px-4 py-2 text-sm" onClick={handleCreateContract} loading={creatingContract}>
-                  Create Contract
+                  Create Visibility Link
                 </Button>
                 <Button variant="secondary" className="px-4 py-2 text-sm" onClick={() => setShowContractForm(false)}>
                   Cancel

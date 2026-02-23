@@ -23,6 +23,7 @@ export interface AffiliateDetail {
   status: string;
   isAffiliate: boolean;
   isSeller: boolean;
+  marketplaceEnabled: boolean;
   createdAt: Date;
   deletedAt: Date | null;
   users: {
@@ -326,7 +327,7 @@ export async function unlockPhaseForEditing(affiliateId: string, phaseNumber: nu
 
 export async function updateAffiliateRoles(
   affiliateId: string,
-  roles: { isAffiliate: boolean; isSeller: boolean }
+  roles: { isAffiliate: boolean; isSeller: boolean; marketplaceEnabled?: boolean }
 ): Promise<void> {
   await getSuperAdminContext();
 
@@ -336,7 +337,11 @@ export async function updateAffiliateRoles(
 
   await prisma.affiliate.update({
     where: { id: affiliateId },
-    data: { isAffiliate: roles.isAffiliate, isSeller: roles.isSeller },
+    data: {
+      isAffiliate: roles.isAffiliate,
+      isSeller: roles.isSeller,
+      ...(roles.marketplaceEnabled !== undefined && { marketplaceEnabled: roles.marketplaceEnabled }),
+    },
   });
 }
 
@@ -348,9 +353,9 @@ export interface NetworkContractItem {
   affiliateName: string | null;
   sellerId: string;
   sellerName: string | null;
-  scopeAll: boolean;
   notes: string | null;
-  locationCount: number;
+  activeTermCount: number;
+  totalLocationCount: number;
   createdAt: Date;
 }
 
@@ -363,31 +368,43 @@ export async function listNetworkContracts(
     where: affiliateId ? { affiliateId } : undefined,
     include: {
       affiliate: { select: { legalName: true } },
-      seller: { select: { legalName: true } },
-      scopedLocations: { select: { id: true } },
+      seller: { select: { legalName: true, _count: { select: { sellerLocations: true } } } },
+      terms: {
+        orderBy: { createdAt: "desc" },
+        select: { sellerLocationId: true, status: true, createdAt: true },
+      },
     },
     orderBy: { createdAt: "desc" },
   });
 
-  return contracts.map((c) => ({
-    id: c.id,
-    affiliateId: c.affiliateId,
-    affiliateName: c.affiliate.legalName,
-    sellerId: c.sellerId,
-    sellerName: c.seller.legalName,
-    scopeAll: c.scopeAll,
-    notes: c.notes,
-    locationCount: c.scopedLocations.length,
-    createdAt: c.createdAt,
-  }));
+  return contracts.map((c) => {
+    // Dedupe terms to get latest per location
+    const latestPerLoc = new Map<string, string>();
+    for (const t of c.terms) {
+      if (!latestPerLoc.has(t.sellerLocationId)) {
+        latestPerLoc.set(t.sellerLocationId, t.status);
+      }
+    }
+    const activeCount = Array.from(latestPerLoc.values()).filter((s) => s === "ACTIVE").length;
+
+    return {
+      id: c.id,
+      affiliateId: c.affiliateId,
+      affiliateName: c.affiliate.legalName,
+      sellerId: c.sellerId,
+      sellerName: c.seller.legalName,
+      notes: c.notes,
+      activeTermCount: activeCount,
+      totalLocationCount: c.seller._count.sellerLocations,
+      createdAt: c.createdAt,
+    };
+  });
 }
 
 export async function createNetworkContract(input: {
   affiliateId: string;
   sellerId: string;
-  scopeAll?: boolean;
   notes?: string;
-  locationIds?: string[];
 }): Promise<{ contractId: string }> {
   await getSuperAdminContext();
 
@@ -400,17 +417,33 @@ export async function createNetworkContract(input: {
   if (!affiliate?.isAffiliate) throw new Error("Target organization is not an affiliate");
   if (!seller?.isSeller) throw new Error("Target organization is not a seller");
 
+  const isSelfContract = input.affiliateId === input.sellerId;
+
   const contract = await prisma.networkContract.create({
     data: {
       affiliateId: input.affiliateId,
       sellerId: input.sellerId,
-      scopeAll: input.scopeAll ?? true,
       notes: input.notes || null,
-      scopedLocations: input.locationIds?.length
-        ? { create: input.locationIds.map((sellerLocationId) => ({ sellerLocationId })) }
-        : undefined,
     },
   });
+
+  // Self-contracts: create ACTIVE terms for all seller locations
+  if (isSelfContract) {
+    const selfLocations = await prisma.sellerLocation.findMany({
+      where: { affiliateId: input.affiliateId },
+      select: { id: true },
+    });
+
+    if (selfLocations.length > 0) {
+      await prisma.networkContractTerm.createMany({
+        data: selfLocations.map((loc) => ({
+          contractId: contract.id,
+          sellerLocationId: loc.id,
+          status: "ACTIVE" as const,
+        })),
+      });
+    }
+  }
 
   return { contractId: contract.id };
 }

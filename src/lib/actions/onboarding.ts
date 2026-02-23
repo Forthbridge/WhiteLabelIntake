@@ -205,14 +205,23 @@ async function loadOnboardingDataByAffiliateId(affiliateId: string): Promise<Onb
   }
   const s11: Section11Data = { categories };
 
-  // --- Count network locations for section 5 (Care Network) status ---
-  const networkLocationCount = affiliate.isAffiliate
-    ? await prisma.networkContractLocation.count({
-        where: { contract: { affiliateId } },
-      }) + await prisma.networkContract.count({
-        where: { affiliateId, scopeAll: true },
-      })
-    : 0;
+  // --- Count active network terms for section 5 (Care Network) status ---
+  let networkLocationCount = 0;
+  if (affiliate.isAffiliate) {
+    const terms = await prisma.networkContractTerm.findMany({
+      where: { contract: { affiliateId } },
+      orderBy: { createdAt: "desc" },
+      select: { contractId: true, sellerLocationId: true, status: true },
+    });
+    const seen = new Set<string>();
+    for (const t of terms) {
+      const key = `${t.contractId}:${t.sellerLocationId}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        if (t.status === "ACTIVE") networkLocationCount++;
+      }
+    }
+  }
 
   // --- Compute completion statuses in-memory ---
   const statuses = computeStatuses(affiliate, program, s3, cn, networkLocationCount);

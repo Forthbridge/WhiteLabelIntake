@@ -1,9 +1,10 @@
 "use client";
 
 import { useRef, useState, useCallback, useEffect } from "react";
-import Map, { Marker, Popup, Source, Layer } from "react-map-gl/mapbox";
+import Map, { Marker, Popup, Source, Layer, type MapRef } from "react-map-gl/mapbox";
 import type { LayerProps } from "react-map-gl/mapbox";
 import "mapbox-gl/dist/mapbox-gl.css";
+import { Button } from "@/components/ui/Button";
 import { LocationCard } from "./LocationCard";
 import type { NetworkLocationItem } from "@/lib/actions/network";
 
@@ -13,9 +14,11 @@ function milesToMeters(miles: number) {
   return miles * 1609.34;
 }
 
-// Simple hash to generate consistent colors per seller org
+const SELF_OWNED_COLOR = "#DC2626"; // Red — reserved for current user's locations
+
+// Simple hash to generate consistent colors per seller org (red excluded)
 function orgColor(orgId: string): string {
-  const colors = ["#0D9488", "#2563EB", "#D97706", "#DC2626", "#7C3AED", "#059669", "#DB2777"];
+  const colors = ["#0D9488", "#2563EB", "#0369A1", "#7C3AED", "#059669", "#DB2777", "#0891B2"];
   let hash = 0;
   for (let i = 0; i < orgId.length; i++) {
     hash = orgId.charCodeAt(i) + ((hash << 5) - hash);
@@ -23,24 +26,55 @@ function orgColor(orgId: string): string {
   return colors[Math.abs(hash) % colors.length];
 }
 
+const AMBER_COLOR = "#D97706";
+
 interface Props {
   locations: NetworkLocationItem[];
   searchQuery: string;
   serviceFilter: string;
   stateFilter: string;
+  showMarketplace?: boolean;
+  onToggleMarketplace?: () => void;
+  affiliateOrgId?: string;
+  onAddLocation?: (location: NetworkLocationItem) => void;
+  onRemoveLocation?: (location: NetworkLocationItem) => void;
 }
 
-export function NetworkMapView({ locations, searchQuery, serviceFilter, stateFilter }: Props) {
+export function NetworkMapView({
+  locations,
+  searchQuery,
+  serviceFilter,
+  stateFilter,
+  showMarketplace,
+  onToggleMarketplace,
+  affiliateOrgId,
+  onAddLocation,
+  onRemoveLocation,
+}: Props) {
   const listRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<MapRef>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showCoverage, setShowCoverage] = useState(true);
   const [radiusMiles, setRadiusMiles] = useState(10);
+  const [fullscreen, setFullscreen] = useState(false);
 
-  const filtered = locations.filter((loc) => {
-    if (!loc.included) return false;
+  // Escape key to exit fullscreen + scroll lock
+  useEffect(() => {
+    if (!fullscreen) return;
+    document.body.style.overflow = "hidden";
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setFullscreen(false);
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => {
+      document.body.style.overflow = "";
+      window.removeEventListener("keydown", handleKey);
+    };
+  }, [fullscreen]);
+
+  function matchesFilters(loc: NetworkLocationItem): boolean {
     if (!loc.latitude || !loc.longitude) return false;
-
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       const match =
@@ -57,12 +91,28 @@ export function NetworkMapView({ locations, searchQuery, serviceFilter, stateFil
       if (loc.state !== stateFilter) return false;
     }
     return true;
-  });
+  }
+
+  // Network locations (included in network, with coords)
+  const networkPins = locations.filter(
+    (loc) => loc.included && matchesFilters(loc),
+  );
+
+  // Marketplace locations (not yet included, with coords)
+  const marketplacePins = showMarketplace
+    ? locations.filter(
+        (loc) => !loc.isSelfOwned && !loc.included && matchesFilters(loc),
+      )
+    : [];
+
+  const allPins = [...networkPins, ...marketplacePins];
 
   // Also show locations without coords in the list (but not on map)
   const listOnly = locations.filter((loc) => {
-    if (!loc.included) return false;
-    if (loc.latitude && loc.longitude) return false; // already in filtered
+    if (loc.latitude && loc.longitude) return false;
+    const isNetwork = loc.included;
+    const isMarketplace = showMarketplace && !loc.isSelfOwned && !loc.included;
+    if (!isNetwork && !isMarketplace) return false;
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       const match =
@@ -79,21 +129,21 @@ export function NetworkMapView({ locations, searchQuery, serviceFilter, stateFil
     return true;
   });
 
-  const allListItems = [...filtered, ...listOnly];
-  const selectedLoc = filtered.find((l) => l.id === selectedId);
+  const allListItems = [...allPins, ...listOnly];
+  const selectedLoc = allPins.find((l) => l.id === selectedId);
 
-  // Compute map bounds from filtered locations
-  const defaultCenter = { latitude: 39.8283, longitude: -98.5795 }; // US center
+  // Compute map bounds from all visible locations
+  const defaultCenter = { latitude: 39.8283, longitude: -98.5795 };
   const defaultZoom = 3.5;
 
-  const hasCoords = filtered.length > 0;
+  const hasCoords = allPins.length > 0;
   const center = hasCoords
     ? {
-        latitude: filtered.reduce((sum, l) => sum + l.latitude!, 0) / filtered.length,
-        longitude: filtered.reduce((sum, l) => sum + l.longitude!, 0) / filtered.length,
+        latitude: allPins.reduce((sum, l) => sum + l.latitude!, 0) / allPins.length,
+        longitude: allPins.reduce((sum, l) => sum + l.longitude!, 0) / allPins.length,
       }
     : defaultCenter;
-  const zoom = hasCoords ? (filtered.length === 1 ? 12 : 6) : defaultZoom;
+  const zoom = hasCoords ? (allPins.length === 1 ? 12 : 6) : defaultZoom;
 
   // Scroll list item into view when pin is clicked
   useEffect(() => {
@@ -109,24 +159,47 @@ export function NetworkMapView({ locations, searchQuery, serviceFilter, stateFil
 
   const handleListClick = useCallback((id: string) => {
     setSelectedId((prev) => (prev === id ? null : id));
-  }, []);
+    const loc = allPins.find((l) => l.id === id);
+    if (loc?.latitude && loc?.longitude && mapRef.current) {
+      mapRef.current.flyTo({
+        center: [loc.longitude, loc.latitude],
+        zoom: Math.max(mapRef.current.getZoom(), 8),
+        duration: 1000,
+      });
+    }
+  }, [allPins]);
 
-  // GeoJSON for coverage circles
+  // GeoJSON for coverage circles (network + marketplace locations)
   const coverageGeoJSON: GeoJSON.FeatureCollection = {
     type: "FeatureCollection",
-    features: filtered.map((loc) => ({
-      type: "Feature" as const,
-      geometry: {
-        type: "Point" as const,
-        coordinates: [loc.longitude!, loc.latitude!],
-      },
-      properties: {
-        color: orgColor(loc.sellerOrgId),
-      },
-    })),
+    features: [
+      ...networkPins.map((loc) => ({
+        type: "Feature" as const,
+        geometry: {
+          type: "Point" as const,
+          coordinates: [loc.longitude!, loc.latitude!],
+        },
+        properties: {
+          color: loc.isSelfOwned ? SELF_OWNED_COLOR : orgColor(loc.sellerOrgId),
+          locId: loc.id,
+        },
+      })),
+      ...(showMarketplace
+        ? marketplacePins.map((loc) => ({
+            type: "Feature" as const,
+            geometry: {
+              type: "Point" as const,
+              coordinates: [loc.longitude!, loc.latitude!],
+            },
+            properties: {
+              color: AMBER_COLOR,
+              locId: loc.id,
+            },
+          }))
+        : []),
+    ],
   };
 
-  // Meters per pixel at zoom 22 at the equator ≈ 0.019
   const metersAtMaxZoom = milesToMeters(radiusMiles) / 0.019;
 
   const coverageLayer: LayerProps = {
@@ -141,10 +214,14 @@ export function NetworkMapView({ locations, searchQuery, serviceFilter, stateFil
         22, metersAtMaxZoom,
       ],
       "circle-color": ["get", "color"],
-      "circle-opacity": 0.12,
+      "circle-opacity": selectedId
+        ? ["case", ["==", ["get", "locId"], selectedId], 0.12, 0.03]
+        : 0.12,
       "circle-stroke-color": ["get", "color"],
       "circle-stroke-width": 1,
-      "circle-stroke-opacity": 0.3,
+      "circle-stroke-opacity": selectedId
+        ? ["case", ["==", ["get", "locId"], selectedId], 0.3, 0.08]
+        : 0.3,
     },
   };
 
@@ -156,15 +233,17 @@ export function NetworkMapView({ locations, searchQuery, serviceFilter, stateFil
     );
   }
 
-  return (
-    <div className="flex rounded-lg border border-border/50 overflow-hidden" style={{ height: "480px" }}>
-      {/* Scrollable list panel */}
-      <div ref={listRef} className="w-72 flex-shrink-0 overflow-y-auto border-r border-border/50 bg-surface">
-        {allListItems.map((loc) => (
+  const renderListPanel = () => (
+    <div ref={listRef} className="w-72 flex-shrink-0 overflow-y-auto border-r border-border/50 bg-surface">
+      {allListItems.map((loc) => {
+        const isAvailable = !loc.included && !loc.isSelfOwned;
+        return (
           <div
             key={loc.id}
             data-loc-id={loc.id}
-            className={`p-3 border-b border-border/30 cursor-pointer transition-colors ${
+            className={`p-3 border-b cursor-pointer transition-colors ${
+              isAvailable ? "border-amber-200 bg-amber-50/30" : "border-border/30"
+            } ${
               hoveredId === loc.id || selectedId === loc.id
                 ? "bg-brand-teal/5"
                 : "hover:bg-surface-hover"
@@ -175,11 +254,23 @@ export function NetworkMapView({ locations, searchQuery, serviceFilter, stateFil
           >
             <div className="flex justify-between items-start">
               <p className="text-sm font-medium text-foreground truncate">{loc.locationName || "Unnamed"}</p>
-              {loc.isSelfOwned && (
-                <span className="text-[9px] font-medium bg-brand-teal/10 text-brand-teal px-1 py-0.5 rounded ml-1 flex-shrink-0">
-                  Yours
-                </span>
-              )}
+              <div className="flex items-center gap-1 flex-shrink-0 ml-1">
+                {loc.isSelfOwned && (
+                  <span className="text-[9px] font-medium bg-brand-teal/10 text-brand-teal px-1 py-0.5 rounded">
+                    Yours
+                  </span>
+                )}
+                {loc.included && !loc.isSelfOwned && (
+                  <span className="text-[9px] font-medium bg-blue-100 text-blue-700 px-1 py-0.5 rounded">
+                    Affiliate
+                  </span>
+                )}
+                {isAvailable && (
+                  <span className="text-[9px] font-medium bg-amber-100 text-amber-700 px-1 py-0.5 rounded">
+                    Available
+                  </span>
+                )}
+              </div>
             </div>
             <p className="text-xs text-muted truncate">{loc.sellerOrgName}</p>
             <p className="text-xs text-muted truncate">
@@ -195,110 +286,260 @@ export function NetworkMapView({ locations, searchQuery, serviceFilter, stateFil
               <p className="text-[10px] text-amber-500 mt-0.5">No coordinates</p>
             )}
           </div>
-        ))}
-      </div>
+        );
+      })}
+    </div>
+  );
 
-      {/* Map panel */}
-      <div className="flex-1 relative">
-        <Map
-          initialViewState={{
-            latitude: center.latitude,
-            longitude: center.longitude,
-            zoom,
-          }}
-          mapboxAccessToken={MAPBOX_TOKEN}
-          mapStyle="mapbox://styles/mapbox/light-v11"
-          style={{ width: "100%", height: "100%" }}
-          attributionControl={false}
-        >
-          {showCoverage && (
-            <Source id="coverage-source" type="geojson" data={coverageGeoJSON}>
-              <Layer {...coverageLayer} />
-            </Source>
-          )}
+  const renderMapPanel = () => (
+    <div className="flex-1 relative">
+      <Map
+        ref={mapRef}
+        initialViewState={{
+          latitude: center.latitude,
+          longitude: center.longitude,
+          zoom,
+        }}
+        mapboxAccessToken={MAPBOX_TOKEN}
+        mapStyle="mapbox://styles/mapbox/light-v11"
+        style={{ width: "100%", height: "100%" }}
+        attributionControl={false}
+      >
+        {showCoverage && (
+          <Source id="coverage-source" type="geojson" data={coverageGeoJSON}>
+            <Layer {...coverageLayer} />
+          </Source>
+        )}
 
-          {filtered.map((loc) => {
-            const color = orgColor(loc.sellerOrgId);
-            const isActive = hoveredId === loc.id || selectedId === loc.id;
+        {/* Network pins — single-color for self-owned, two-tone for affiliate */}
+        {networkPins.map((loc) => {
+          const isActive = hoveredId === loc.id || selectedId === loc.id;
+          const sellerColor = orgColor(loc.sellerOrgId);
 
-            return (
-              <Marker
-                key={loc.id}
-                latitude={loc.latitude!}
-                longitude={loc.longitude!}
-                anchor="bottom"
-                onClick={(e) => {
-                  e.originalEvent.stopPropagation();
-                  setSelectedId((prev) => (prev === loc.id ? null : loc.id));
-                }}
+          return (
+            <Marker
+              key={loc.id}
+              latitude={loc.latitude!}
+              longitude={loc.longitude!}
+              anchor="bottom"
+              onClick={(e) => {
+                e.originalEvent.stopPropagation();
+                setSelectedId((prev) => (prev === loc.id ? null : loc.id));
+              }}
+            >
+              <div
+                className="transition-transform"
+                style={{ transform: isActive ? "scale(1.3)" : "scale(1)" }}
+                onMouseEnter={() => setHoveredId(loc.id)}
+                onMouseLeave={() => setHoveredId(null)}
               >
-                <div
-                  className="transition-transform"
-                  style={{ transform: isActive ? "scale(1.3)" : "scale(1)" }}
-                  onMouseEnter={() => setHoveredId(loc.id)}
-                  onMouseLeave={() => setHoveredId(null)}
-                >
+                {loc.isSelfOwned ? (
                   <svg width="24" height="32" viewBox="0 0 24 32" fill="none">
                     <path
                       d="M12 0C5.373 0 0 5.373 0 12c0 9 12 20 12 20s12-11 12-20C24 5.373 18.627 0 12 0z"
-                      fill={color}
+                      fill={SELF_OWNED_COLOR}
                       opacity={isActive ? 1 : 0.85}
                     />
                     <circle cx="12" cy="11" r="4" fill="white" />
                   </svg>
-                </div>
-              </Marker>
-            );
-          })}
+                ) : (
+                  <svg width="24" height="32" viewBox="0 0 24 32" fill="none">
+                    <defs>
+                      <clipPath id={`top-${loc.id}`}><rect x="0" y="0" width="24" height="16" /></clipPath>
+                      <clipPath id={`bot-${loc.id}`}><rect x="0" y="16" width="24" height="16" /></clipPath>
+                    </defs>
+                    <path
+                      d="M12 0C5.373 0 0 5.373 0 12c0 9 12 20 12 20s12-11 12-20C24 5.373 18.627 0 12 0z"
+                      fill={SELF_OWNED_COLOR}
+                      opacity={isActive ? 1 : 0.85}
+                      clipPath={`url(#top-${loc.id})`}
+                    />
+                    <path
+                      d="M12 0C5.373 0 0 5.373 0 12c0 9 12 20 12 20s12-11 12-20C24 5.373 18.627 0 12 0z"
+                      fill={sellerColor}
+                      opacity={isActive ? 1 : 0.85}
+                      clipPath={`url(#bot-${loc.id})`}
+                    />
+                    <circle cx="12" cy="11" r="4" fill="white" />
+                  </svg>
+                )}
+              </div>
+            </Marker>
+          );
+        })}
 
-          {selectedLoc && (
-            <Popup
-              latitude={selectedLoc.latitude!}
-              longitude={selectedLoc.longitude!}
+        {/* Marketplace pins (amber) */}
+        {marketplacePins.map((loc) => {
+          const isActive = hoveredId === loc.id || selectedId === loc.id;
+
+          return (
+            <Marker
+              key={loc.id}
+              latitude={loc.latitude!}
+              longitude={loc.longitude!}
               anchor="bottom"
-              offset={[0, -32]}
-              closeOnClick={false}
-              onClose={() => setSelectedId(null)}
-              className="network-map-popup"
+              onClick={(e) => {
+                e.originalEvent.stopPropagation();
+                setSelectedId((prev) => (prev === loc.id ? null : loc.id));
+              }}
             >
-              <LocationCard location={selectedLoc} compact />
-            </Popup>
-          )}
-        </Map>
+              <div
+                className="transition-transform"
+                style={{ transform: isActive ? "scale(1.3)" : "scale(1)" }}
+                onMouseEnter={() => setHoveredId(loc.id)}
+                onMouseLeave={() => setHoveredId(null)}
+              >
+                <svg width="24" height="32" viewBox="0 0 24 32" fill="none">
+                  <path
+                    d="M12 0C5.373 0 0 5.373 0 12c0 9 12 20 12 20s12-11 12-20C24 5.373 18.627 0 12 0z"
+                    fill={AMBER_COLOR}
+                    opacity={isActive ? 1 : 0.7}
+                    strokeDasharray="4 2"
+                  />
+                  <circle cx="12" cy="11" r="4" fill="white" />
+                </svg>
+              </div>
+            </Marker>
+          );
+        })}
 
-        {/* Coverage controls */}
-        <div className="absolute bottom-3 left-3 flex items-center gap-2 bg-white/80 backdrop-blur-sm rounded-lg px-2.5 py-1.5 shadow-sm border border-border/40">
-          <button
-            type="button"
-            onClick={() => setShowCoverage((v) => !v)}
-            className={`flex items-center gap-1.5 text-xs font-medium transition-colors ${
-              showCoverage ? "text-brand-teal" : "text-muted hover:text-foreground"
-            }`}
+        {selectedLoc && (
+          <Popup
+            latitude={selectedLoc.latitude!}
+            longitude={selectedLoc.longitude!}
+            anchor="bottom"
+            offset={[0, -32]}
+            closeOnClick={false}
+            onClose={() => setSelectedId(null)}
+            className="network-map-popup"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="10" />
-              <circle cx="12" cy="12" r="6" />
-              <circle cx="12" cy="12" r="2" />
-            </svg>
-            Coverage
-          </button>
-          {showCoverage && (
-            <>
-              <div className="w-px h-4 bg-border/60" />
-              <input
-                type="range"
-                min={1}
-                max={25}
-                step={1}
-                value={radiusMiles}
-                onChange={(e) => setRadiusMiles(Number(e.target.value))}
-                className="w-20 h-1 accent-brand-teal"
-              />
-              <span className="text-xs text-muted tabular-nums w-8">{radiusMiles} mi</span>
-            </>
-          )}
-        </div>
+            <LocationCard
+              location={selectedLoc}
+              compact
+              onAdd={
+                !selectedLoc.included && !selectedLoc.isSelfOwned && onAddLocation
+                  ? () => onAddLocation(selectedLoc)
+                  : undefined
+              }
+              onRemove={
+                selectedLoc.included && !selectedLoc.isSelfOwned && onRemoveLocation
+                  ? () => onRemoveLocation(selectedLoc)
+                  : undefined
+              }
+            />
+          </Popup>
+        )}
+      </Map>
+
+      {/* Expand/collapse button — top-right of map */}
+      <button
+        type="button"
+        onClick={() => setFullscreen((v) => !v)}
+        className="absolute top-3 right-3 bg-white/80 backdrop-blur-sm rounded-lg p-1.5 shadow-sm border border-border/40 text-muted hover:text-foreground transition-colors z-10"
+        title={fullscreen ? "Exit fullscreen" : "Expand map"}
+      >
+        {fullscreen ? (
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="6 1 6 6 1 6" />
+            <polyline points="10 15 10 10 15 10" />
+          </svg>
+        ) : (
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="1 6 1 1 6 1" />
+            <polyline points="15 10 15 15 10 15" />
+          </svg>
+        )}
+      </button>
+
+      {/* Coverage controls */}
+      <div className="absolute bottom-3 left-3 flex items-center gap-2 bg-white/80 backdrop-blur-sm rounded-lg px-2.5 py-1.5 shadow-sm border border-border/40">
+        <button
+          type="button"
+          onClick={() => setShowCoverage((v) => !v)}
+          className={`flex items-center gap-1.5 text-xs font-medium transition-colors ${
+            showCoverage ? "text-brand-teal" : "text-muted hover:text-foreground"
+          }`}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <circle cx="12" cy="12" r="6" />
+            <circle cx="12" cy="12" r="2" />
+          </svg>
+          Coverage
+        </button>
+        {showCoverage && (
+          <>
+            <div className="w-px h-4 bg-border/60" />
+            <input
+              type="range"
+              min={1}
+              max={25}
+              step={1}
+              value={radiusMiles}
+              onChange={(e) => setRadiusMiles(Number(e.target.value))}
+              className="w-20 h-1 accent-brand-teal"
+            />
+            <span className="text-xs text-muted tabular-nums w-8">{radiusMiles} mi</span>
+          </>
+        )}
       </div>
     </div>
+  );
+
+  return (
+    <>
+      {/* Inline container — invisible when fullscreen to preserve layout space */}
+      <div
+        className={`flex rounded-lg border border-border/50 overflow-hidden ${fullscreen ? "invisible" : ""}`}
+        style={{ height: "480px" }}
+      >
+        {!fullscreen && (
+          <>
+            {renderListPanel()}
+            {renderMapPanel()}
+          </>
+        )}
+      </div>
+
+      {/* Fullscreen overlay */}
+      {fullscreen && (
+        <div className="fixed inset-0 z-50 bg-white flex flex-col">
+          {/* Status bar */}
+          <div className="flex-shrink-0 border-b border-border/50 px-4 py-2 text-sm flex items-center justify-between">
+            <div>
+              <span className="text-muted">{networkPins.length} location{networkPins.length !== 1 ? "s" : ""} in your network</span>
+              {showMarketplace && (
+                <>
+                  <span className="text-muted"> · </span>
+                  <span className="text-amber-600 font-medium">{marketplacePins.length} available to add</span>
+                </>
+              )}
+            </div>
+            {onToggleMarketplace && (
+              <button
+                type="button"
+                onClick={onToggleMarketplace}
+                className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md border transition-colors ${
+                  showMarketplace
+                    ? "bg-amber-50 border-amber-200 text-amber-700"
+                    : "bg-white border-border/50 text-muted hover:text-foreground"
+                }`}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 3h18v18H3z" />
+                  <path d="M12 3v18" />
+                  <path d="M3 12h18" />
+                </svg>
+                Marketplace
+              </button>
+            )}
+          </div>
+          <div className="flex flex-1 min-h-0">
+            {renderListPanel()}
+            {renderMapPanel()}
+          </div>
+        </div>
+      )}
+    </>
   );
 }

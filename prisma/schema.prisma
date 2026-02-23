@@ -483,10 +483,11 @@ model SellerServiceOffering {
   id          String    @id @default(cuid())
   affiliateId String
   affiliate   Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
-  serviceType String
-  selected    Boolean   @default(false)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  serviceType      String
+  selected         Boolean   @default(false)
+  basePricePerVisit Decimal? @db.Decimal(10, 2)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   @@unique([affiliateId, serviceType])
   @@map("seller_service_offerings")

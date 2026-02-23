@@ -87,7 +87,7 @@ export async function computeSellerStatuses(
     prisma.onboardingFlow.findFirst({ where: { affiliateId, flowType: "SELLER" } }),
   ]);
 
-  const empty: Record<SellerSectionId, CompletionStatus> = { "S-1": "not_started", "S-2": "not_started", "S-3": "not_started", "S-4": "not_started", "S-5": "not_started", "S-6": "not_started", "S-R": "not_started" };
+  const empty: Record<SellerSectionId, CompletionStatus> = { "S-1": "not_started", "S-2": "not_started", "S-3": "not_started", "S-4": "not_started", "S-5": "not_started", "S-6": "not_started", "S-7": "not_started", "S-R": "not_started" };
 
   // S-1: Org Info (from SellerProfile)
   const orgFields = [profile?.legalName, profile?.adminContactName, profile?.adminContactEmail];
@@ -102,9 +102,24 @@ export async function computeSellerStatuses(
   const completeProvs = sellerProviders.filter((p) => p.firstName && p.lastName && p.npi && p.licenseNumber);
   const s3: CompletionStatus = sellerProviders.length === 0 ? "not_started" : completeProvs.length === sellerProviders.length ? "complete" : "in_progress";
 
-  // S-4: Services Offered
+  // S-4: Services Offered — requires at least one of primary_care or urgent_care
   const selectedOfferings = offerings.filter((o) => o.selected);
-  const s4: CompletionStatus = offerings.length === 0 ? "not_started" : selectedOfferings.length > 0 ? "complete" : "in_progress";
+  const hasCareService = selectedOfferings.some((o) => o.serviceType === "primary_care" || o.serviceType === "urgent_care");
+  const s4: CompletionStatus = offerings.length === 0 ? "not_started" : (selectedOfferings.length > 0 && hasCareService) ? "complete" : "in_progress";
+
+  // S-7: Visit Pricing — all selected care services must have prices
+  const careOfferings = offerings.filter(
+    (o) => o.selected && (o.serviceType === "primary_care" || o.serviceType === "urgent_care")
+  );
+  let s7: CompletionStatus = "not_started";
+  if (careOfferings.length > 0) {
+    const priced = careOfferings.filter((o) => o.basePricePerVisit != null);
+    if (priced.length === careOfferings.length) {
+      s7 = "complete";
+    } else if (priced.length > 0) {
+      s7 = "in_progress";
+    }
+  }
 
   // S-5: Lab Network (from SellerLabNetwork)
   const s5: CompletionStatus = !sellerLab
@@ -123,8 +138,8 @@ export async function computeSellerStatuses(
         : "not_started";
 
   // S-R: Review
-  const allComplete = [s1, s2, s3, s4, s5, s6].every((s) => s === "complete");
+  const allComplete = [s1, s2, s3, s4, s5, s6, s7].every((s) => s === "complete");
   const sR: CompletionStatus = flows?.status === "SUBMITTED" ? "complete" : allComplete ? "in_progress" : "not_started";
 
-  return { "S-1": s1, "S-2": s2, "S-3": s3, "S-4": s4, "S-5": s5, "S-6": s6, "S-R": sR };
+  return { "S-1": s1, "S-2": s2, "S-3": s3, "S-4": s4, "S-5": s5, "S-6": s6, "S-7": s7, "S-R": sR };
 }

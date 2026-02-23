@@ -22,6 +22,7 @@ import { SellerBillingForm } from "./sections/SellerBillingForm";
 import { SellerReviewForm } from "./sections/SellerReviewForm";
 import { SellerLocationsForm } from "./sections/SellerLocationsForm";
 import { SellerProvidersForm } from "./sections/SellerProvidersForm";
+import { SellerPricingForm } from "./sections/SellerPricingForm";
 
 import type { Section1Data } from "@/lib/validations/section1";
 import type { Section2Data } from "@/lib/validations/section2";
@@ -33,6 +34,7 @@ import type { SellerOrgData } from "@/lib/validations/seller-org";
 import type { SellerServicesData } from "@/lib/validations/seller-services";
 import type { SellerLabData } from "@/lib/validations/seller-lab";
 import type { SellerBillingData } from "@/lib/validations/seller-billing";
+import type { SellerPricingData } from "@/lib/validations/seller-pricing";
 import type { LocationServiceState } from "@/lib/actions/location-services";
 import type { SellerLocationsData, SellerLocationData } from "@/lib/actions/seller-locations";
 import type { SellerProvidersData, SellerProviderData } from "@/lib/actions/seller-providers";
@@ -106,6 +108,7 @@ export interface SellerFlowData {
   orgInfo: SellerOrgData;
   services: SellerServicesData;
   orgSubServices: Section11Data;
+  pricing: SellerPricingData;
   lab: SellerLabData;
   billing: SellerBillingData;
   locationServices: Record<string, LocationServiceState>;
@@ -164,7 +167,7 @@ function OnboardingClientInner({
   const [isSaving, setIsSaving] = useState(false);
   const [dirtySections, setDirtySections] = useState<Record<string | number, boolean>>({});
   const [sellerStatuses, setSellerStatuses] = useState<Record<SellerSectionId, CompletionStatus>>(
-    sellerData?.statuses ?? { "S-1": "not_started", "S-2": "not_started", "S-3": "not_started", "S-4": "not_started", "S-5": "not_started", "S-6": "not_started", "S-R": "not_started" }
+    sellerData?.statuses ?? { "S-1": "not_started", "S-2": "not_started", "S-3": "not_started", "S-4": "not_started", "S-5": "not_started", "S-6": "not_started", "S-7": "not_started", "S-R": "not_started" }
   );
   const [sellerServices, setSellerServices] = useState<SellerServicesData>(
     sellerData?.services ?? { services: [] }
@@ -294,6 +297,18 @@ function OnboardingClientInner({
             disabled={sellerLocked}
           />
         );
+      case "S-7": {
+        const defaultPricing: SellerPricingData = { primaryCarePrice: null, urgentCarePrice: null };
+        return (
+          <SellerPricingForm
+            initialData={sellerCache?.pricing ?? defaultPricing}
+            serviceSelections={sellerServices.services}
+            onNavigate={handleSellerNavigate}
+            onStatusUpdate={handleSellerStatusUpdate}
+            disabled={sellerLocked}
+          />
+        );
+      }
       case "S-5":
         return (
           <SellerLabForm

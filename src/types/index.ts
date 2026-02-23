@@ -17,7 +17,7 @@ export interface SectionMeta {
 
 // ─── Seller (Care Delivery) Sections ────────────────────────────
 
-export type SellerSectionId = "S-1" | "S-2" | "S-3" | "S-4" | "S-5" | "S-6" | "S-R";
+export type SellerSectionId = "S-1" | "S-2" | "S-3" | "S-4" | "S-5" | "S-6" | "S-7" | "S-R";
 
 export interface SellerSectionMeta {
   id: SellerSectionId;
@@ -28,6 +28,7 @@ export interface SellerSectionMeta {
 export const SELLER_SECTIONS: SellerSectionMeta[] = [
   { id: "S-1", title: "Organization Info", description: "Legal name, contacts, and basic info" },
   { id: "S-4", title: "Default Services", description: "Select services and configure default sub-service availability" },
+  { id: "S-7", title: "Visit Pricing", description: "Set cash prices for care visits" },
   { id: "S-2", title: "Physical Locations", description: "Register your practice locations" },
   { id: "S-3", title: "Providers & Credentials", description: "Add provider information" },
   { id: "S-5", title: "Lab Network", description: "Lab network configuration" },

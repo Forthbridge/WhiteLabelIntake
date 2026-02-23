@@ -17,6 +17,7 @@ import { SELLER_SERVICE_TYPES } from "@/lib/validations/seller-services";
 import type { SellerServicesData } from "@/lib/validations/seller-services";
 import type { SellerLabData } from "@/lib/validations/seller-lab";
 import type { SellerBillingData } from "@/lib/validations/seller-billing";
+import type { SellerPricingData } from "@/lib/validations/seller-pricing";
 import { computeSellerStatuses } from "./seller-org";
 import { loadAllLocationServices, type LocationServiceState } from "./location-services";
 import { loadSellerOrgSubServices } from "./seller-org-sub-services";
@@ -258,6 +259,14 @@ async function loadOnboardingDataByAffiliateId(affiliateId: string): Promise<Onb
       integrationAcknowledged: sellerLabNetwork?.integrationAcknowledged ?? false,
     };
 
+    // Build pricing data from offerings with basePricePerVisit
+    const pcOffering = sellerOfferings.find((o) => o.serviceType === "primary_care" && o.selected);
+    const ucOffering = sellerOfferings.find((o) => o.serviceType === "urgent_care" && o.selected);
+    const sellerPricing: SellerPricingData = {
+      primaryCarePrice: pcOffering?.basePricePerVisit ? Number(pcOffering.basePricePerVisit) : null,
+      urgentCarePrice: ucOffering?.basePricePerVisit ? Number(ucOffering.basePricePerVisit) : null,
+    };
+
     const sellerBilling: SellerBillingData = {
       w9FilePath: sellerProfile?.w9FilePath ?? null,
       achAccountHolderName: sellerProfile?.achAccountHolderName ?? "",
@@ -282,6 +291,7 @@ async function loadOnboardingDataByAffiliateId(affiliateId: string): Promise<Onb
         operationsContactPhone: sellerProfile?.operationsContactPhone ?? "",
       },
       services: sellerServices,
+      pricing: sellerPricing,
       lab: sellerLab,
       billing: sellerBilling,
       locationServices: locationServiceMap,

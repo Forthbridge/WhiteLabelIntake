@@ -164,6 +164,24 @@ export function SellerReviewForm({ sellerData, statuses, onNavigate, onSubmitted
         )}
       </Card>
 
+      {/* Visit Pricing */}
+      {(sellerData.pricing?.primaryCarePrice != null || sellerData.pricing?.urgentCarePrice != null) && (
+        <Card>
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="text-base font-heading font-semibold">Visit Pricing</h3>
+            {onNavigate && (
+              <button type="button" onClick={() => onNavigate("S-7")} className="text-xs text-brand-teal hover:underline">Edit</button>
+            )}
+          </div>
+          {sellerData.pricing.primaryCarePrice != null && (
+            <Field label="Primary Care" value={`$${Number(sellerData.pricing.primaryCarePrice).toFixed(2)} per visit`} />
+          )}
+          {sellerData.pricing.urgentCarePrice != null && (
+            <Field label="Urgent Care" value={`$${Number(sellerData.pricing.urgentCarePrice).toFixed(2)} per visit`} />
+          )}
+        </Card>
+      )}
+
       {/* Per-Location Overrides */}
       {sellerData.locations.length > 0 && (
         <Card>

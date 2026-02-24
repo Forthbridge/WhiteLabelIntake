@@ -149,13 +149,6 @@ export function SellerServicesForm({ initialData, initialSubServiceData, onNavig
   return (
     <div className="flex flex-col gap-6">
       <Card>
-        <h3 className="text-lg font-heading font-semibold mb-1">
-          Default Services Offered
-        </h3>
-        <p className="text-xs text-muted mb-5">
-          Select the services your organization provides. These become the default service catalog for all your locations. Individual locations can customize their offerings if needed.
-        </p>
-
         <div className="flex flex-col gap-3">
           {data.services.map((service, index) => {
             const meta = SELLER_SERVICE_TYPES.find((st) => st.value === service.serviceType);

@@ -46,7 +46,8 @@ export function SellerLabForm({ initialData, onNavigate, onStatusUpdate, disable
   return (
     <div className="flex flex-col gap-6">
       <Card>
-        <h3 className="text-lg font-heading font-semibold mb-4">Lab Network</h3>
+        <h3 className="text-lg font-heading font-semibold mb-1">Preferred Lab Partner</h3>
+        <p className="text-xs text-muted mb-5">Select your lab network or choose &ldquo;Other&rdquo; if you use a different provider.</p>
         <RadioGroup
           name="sellerNetworkType"
           label="Which lab network does your organization use?"

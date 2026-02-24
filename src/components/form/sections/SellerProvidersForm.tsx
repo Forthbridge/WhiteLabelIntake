@@ -141,10 +141,6 @@ export function SellerProvidersForm({ initialData, onNavigate, onStatusUpdate, d
 
   return (
     <div className="flex flex-col gap-6">
-      <p className="text-xs text-muted">
-        Add the credentialed providers who deliver care at your locations. These providers will be visible to plan buyers in the marketplace.
-      </p>
-
       {data.providers.map((prov, index) => {
         const isOpen = index === openIndex;
         const isComplete = providerComplete(prov);

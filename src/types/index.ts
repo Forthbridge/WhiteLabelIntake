@@ -26,13 +26,13 @@ export interface SellerSectionMeta {
 }
 
 export const SELLER_SECTIONS: SellerSectionMeta[] = [
-  { id: "S-1", title: "Organization Info", description: "Legal name, contacts, and basic info" },
-  { id: "S-4", title: "Default Services", description: "Select services and configure default sub-service availability" },
-  { id: "S-7", title: "Visit Pricing", description: "Set cash prices for care visits" },
-  { id: "S-2", title: "Physical Locations", description: "Register your practice locations" },
-  { id: "S-3", title: "Providers & Credentials", description: "Add provider information" },
-  { id: "S-5", title: "Lab Network", description: "Lab network configuration" },
-  { id: "S-6", title: "Billing Setup", description: "Payout account and banking information" },
+  { id: "S-1", title: "Organization Info", description: "Tell us about your legal entity and key contacts. This information is used for contracting and day-to-day coordination." },
+  { id: "S-4", title: "Default Services Offered", description: "Select the services your organization provides. These become the default service catalog for all your locations. Individual locations can customize their offerings if needed." },
+  { id: "S-7", title: "Visit Pricing", description: "Set your all-inclusive cash price per visit. Each price covers all labs, imaging, immunizations & DME delivered during the visit." },
+  { id: "S-2", title: "Physical Locations", description: "Register the physical locations where your organization delivers care. Each location can customize its services, scheduling, and provider availability." },
+  { id: "S-3", title: "Providers & Credentials", description: "Add the credentialed providers who deliver care at your locations. Each provider's information is used for credentialing and network directory listings." },
+  { id: "S-5", title: "Lab Network", description: "Choose how your organization handles lab work. If you use a preferred lab partner, we'll coordinate setup." },
+  { id: "S-6", title: "Billing Setup", description: "Set up your payout account and upload required banking documents. This information is encrypted and used to process your payments." },
   { id: "S-R", title: "Review & Submit", description: "Review all sections and submit" },
 ];
 
@@ -41,13 +41,13 @@ export function getSellerSectionMeta(id: SellerSectionId): SellerSectionMeta | u
 }
 
 export const SECTIONS: SectionMeta[] = [
-  { id: 1, title: "Client & Program Overview", phase: "program", description: "Identify your organization and program details", minPhase: 1 },
-  { id: 2, title: "Default Program Services", phase: "program", description: "Confirm included services", minPhase: 1 },
-  { id: 3, title: "In-Person & Extended Services", phase: "program", description: "Select additional services", minPhase: 1 },
-  { id: 4, title: "Payouts & Payments", phase: "program", description: "Payment and billing setup", minPhase: 1 },
-  { id: 5, title: "Care Network", phase: "operations", description: "Build your network of care delivery locations", minPhase: 1 },
-  { id: 9, title: "Care Navigation", phase: "operations", description: "Care Nav services and escalation", minPhase: 1 },
-  { id: 10, title: "Review & Submit", phase: "review", description: "Review and submit your form", minPhase: 1 },
+  { id: 1, title: "Company & Contacts", phase: "program", description: "Tell us about your organization and who we should work with", minPhase: 1 },
+  { id: 2, title: "Your Plan", phase: "program", description: "Review your defaults, choose extended services, and set up escalation contacts", minPhase: 1 },
+  { id: 3, title: "In-Person & Extended Services", phase: "program", description: "Select additional services", minPhase: 1, hidden: true },
+  { id: 5, title: "Care Network", phase: "program", description: "Choose where your members access their benefits", minPhase: 1 },
+  { id: 4, title: "Payouts & Payments", phase: "program", description: "Set up how you receive payouts and how we collect invoices", minPhase: 1 },
+  { id: 9, title: "Care Navigation", phase: "program", description: "Care Nav services and escalation", minPhase: 1, hidden: true },
+  { id: 10, title: "Review & Submit", phase: "review", description: "Review everything and submit — our team uses this to complete your setup", minPhase: 1 },
 ];
 
 export function getSectionMeta(id: number): SectionMeta | undefined {
@@ -60,9 +60,9 @@ export function getSectionMeta(id: number): SectionMeta | undefined {
  */
 export const SECTION_PREREQUISITES: Partial<Record<SectionId, SectionId[]>> = {
   2: [1],
-  3: [1],
+  5: [1, 2],
   4: [1],
-  10: [1, 2, 3, 4, 5, 9],
+  10: [1, 2, 4, 5],
 };
 
 /**

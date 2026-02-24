@@ -47,12 +47,6 @@ export function SellerPricingForm({ initialData, serviceSelections, onNavigate, 
   return (
     <div className="flex flex-col gap-6">
       <Card>
-        <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 mb-6">
-          <p className="text-sm text-blue-800">
-            Set your all-inclusive cash price per visit. Each price covers all labs, imaging, immunizations &amp; DME delivered during the visit.
-          </p>
-        </div>
-
         {!hasPrimaryCare && !hasUrgentCare && (
           <p className="text-sm text-muted">
             No pricing-eligible services selected. Go back to Default Services and select Primary Care or Urgent Care.

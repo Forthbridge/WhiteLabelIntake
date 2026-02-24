@@ -523,10 +523,6 @@ export function SellerLocationsForm({ initialData, sellerServiceOfferings, locat
 
   return (
     <div className="flex flex-col gap-6">
-      <p className="text-xs text-muted">
-        Register the physical locations where your organization delivers care. These locations will be available to plan buyers in the marketplace.
-      </p>
-
       <Card>
         <h3 className="text-lg font-heading font-semibold mb-1">Default Scheduling System</h3>
         <p className="text-xs text-muted mb-5">This applies to all locations unless overridden per-location below.</p>

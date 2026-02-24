@@ -164,20 +164,22 @@ export function SellerReviewForm({ sellerData, statuses, onNavigate, onSubmitted
         )}
       </Card>
 
-      {/* Visit Pricing */}
-      {(sellerData.pricing?.primaryCarePrice != null || sellerData.pricing?.urgentCarePrice != null) && (
+      {/* Price List */}
+      {((sellerData.pricing?.visitPrices?.length ?? 0) > 0 || (sellerData.pricing?.subServicePrices?.length ?? 0) > 0) && (
         <Card>
           <div className="flex justify-between items-center mb-3">
-            <h3 className="text-base font-heading font-semibold">Visit Pricing</h3>
+            <h3 className="text-base font-heading font-semibold">Default Price List</h3>
             {onNavigate && (
               <button type="button" onClick={() => onNavigate("S-7")} className="text-xs text-brand-teal hover:underline">Edit</button>
             )}
           </div>
-          {sellerData.pricing.primaryCarePrice != null && (
-            <Field label="Primary Care" value={`$${Number(sellerData.pricing.primaryCarePrice).toFixed(2)} per visit`} />
-          )}
-          {sellerData.pricing.urgentCarePrice != null && (
-            <Field label="Urgent Care" value={`$${Number(sellerData.pricing.urgentCarePrice).toFixed(2)} per visit`} />
+          {sellerData.pricing?.visitPrices?.filter((v) => v.price != null).map((vp) => (
+            <Field key={vp.serviceType} label={vp.serviceType === "primary_care" ? "Primary Care" : "Urgent Care"} value={`$${Number(vp.price).toFixed(2)} per visit`} />
+          ))}
+          {(sellerData.pricing?.subServicePrices?.filter((s) => s.unitPrice != null).length ?? 0) > 0 && (
+            <p className="text-xs text-muted mt-2">
+              {sellerData.pricing!.subServicePrices!.filter((s) => s.unitPrice != null).length} sub-service{sellerData.pricing!.subServicePrices!.filter((s) => s.unitPrice != null).length !== 1 ? "s" : ""} priced
+            </p>
           )}
         </Card>
       )}

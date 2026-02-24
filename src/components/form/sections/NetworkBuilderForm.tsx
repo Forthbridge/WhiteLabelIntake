@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import dynamic from "next/dynamic";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/Card";
@@ -24,6 +24,87 @@ const NetworkMapView = dynamic(
 
 type ViewMode = "list" | "map";
 
+/* ---------- Seller multi-select dropdown ---------- */
+function SellerMultiSelect({
+  sellers,
+  selected,
+  onChange,
+}: {
+  sellers: [string, string][]; // [id, name]
+  selected: string[];
+  onChange: (ids: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  const label =
+    selected.length === 0
+      ? "All Sellers"
+      : selected.length === 1
+        ? sellers.find(([id]) => id === selected[0])?.[1] ?? "1 seller"
+        : `${selected.length} sellers`;
+
+  function toggle(id: string) {
+    onChange(
+      selected.includes(id) ? selected.filter((s) => s !== id) : [...selected, id],
+    );
+  }
+
+  return (
+    <div className="w-full sm:w-52 relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between rounded-md border border-border bg-white px-3 py-2 text-sm transition-colors hover:border-brand-teal/40 focus:outline-none focus:ring-2 focus:ring-brand-teal/30"
+      >
+        <span className={selected.length === 0 ? "text-muted" : "text-foreground truncate"}>
+          {label}
+        </span>
+        <svg className={`w-4 h-4 text-muted transition-transform ${open ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      {open && sellers.length > 0 && (
+        <div className="absolute z-50 mt-1 w-full max-h-56 overflow-y-auto rounded-md border border-border bg-white shadow-lg">
+          {selected.length > 0 && (
+            <button
+              type="button"
+              onClick={() => onChange([])}
+              className="w-full text-left px-3 py-1.5 text-xs text-brand-teal hover:bg-surface"
+            >
+              Clear filter
+            </button>
+          )}
+          {sellers.map(([id, name]) => (
+            <label
+              key={id}
+              className="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-surface cursor-pointer"
+            >
+              <input
+                type="checkbox"
+                checked={selected.includes(id)}
+                onChange={() => toggle(id)}
+                className="rounded border-border text-brand-teal focus:ring-brand-teal/30"
+              />
+              <span className="truncate">{name}</span>
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface Props {
   onNavigate: (sectionId: number) => void;
   disabled?: boolean;
@@ -38,6 +119,7 @@ export function NetworkBuilderForm({ onNavigate, disabled }: Props) {
   const [searchQuery, setSearchQuery] = useState("");
   const [serviceFilter, setServiceFilter] = useState("all");
   const [stateFilter, setStateFilter] = useState("all");
+  const [sellerFilter, setSellerFilter] = useState<string[]>([]);
   const [viewMode, setViewMode] = useState<ViewMode>("map");
   const [showMarketplace, setShowMarketplace] = useState(false);
 
@@ -71,8 +153,18 @@ export function NetworkBuilderForm({ onNavigate, disabled }: Props) {
     ? locations.filter((l) => !l.isSelfOwned && !l.included).length
     : 0;
 
-  // Unique states from all locations for filter
-  const uniqueStates = Array.from(new Set(locations.map((l) => l.state).filter(Boolean))).sort();
+  // Visible locations — exclude marketplace sellers when toggled off
+  const visibleLocations = showMarketplace
+    ? locations
+    : locations.filter((l) => l.included);
+
+  // Unique states from visible locations for filter
+  const uniqueStates = Array.from(new Set(visibleLocations.map((l) => l.state).filter(Boolean))).sort();
+
+  // Unique sellers from visible locations for filter
+  const uniqueSellers = Array.from(
+    new Map(visibleLocations.map((l) => [l.sellerOrgId, l.sellerOrgName || "Unknown"])).entries()
+  ).sort((a, b) => a[1].localeCompare(b[1]));
 
   // Combined service type options
   const allServiceTypes = [
@@ -172,6 +264,11 @@ export function NetworkBuilderForm({ onNavigate, disabled }: Props) {
                 ]}
               />
             </div>
+            <SellerMultiSelect
+              sellers={uniqueSellers}
+              selected={sellerFilter}
+              onChange={setSellerFilter}
+            />
           </div>
 
           {/* View toggle + Marketplace toggle */}
@@ -181,7 +278,13 @@ export function NetworkBuilderForm({ onNavigate, disabled }: Props) {
               <Checkbox
                 name="show-marketplace"
                 checked={showMarketplace}
-                onChange={() => setShowMarketplace((v) => !v)}
+                onChange={() => {
+                  setShowMarketplace((v) => {
+                    // Reset filters when hiding marketplace (filtered values may not exist in contracted set)
+                    if (v) { setSellerFilter([]); setStateFilter("all"); }
+                    return !v;
+                  });
+                }}
                 label="Show Marketplace"
               />
             ) : (
@@ -234,6 +337,7 @@ export function NetworkBuilderForm({ onNavigate, disabled }: Props) {
             searchQuery={searchQuery}
             serviceFilter={serviceFilter}
             stateFilter={stateFilter}
+            sellerFilter={sellerFilter}
             showMarketplace={showMarketplace}
             onAddLocation={!disabled ? handleAddLocation : undefined}
             onRemoveLocation={!disabled ? handleRemoveLocation : undefined}
@@ -244,8 +348,16 @@ export function NetworkBuilderForm({ onNavigate, disabled }: Props) {
             searchQuery={searchQuery}
             serviceFilter={serviceFilter}
             stateFilter={stateFilter}
+            sellerFilter={sellerFilter}
             showMarketplace={showMarketplace}
-            onToggleMarketplace={marketplaceEnabled && !disabled ? () => setShowMarketplace((v) => !v) : undefined}
+            onToggleMarketplace={marketplaceEnabled && !disabled ? () => {
+              setShowMarketplace((v) => {
+                if (v) setSellerFilter([]);
+                return !v;
+              });
+            } : undefined}
+            onSellerFilterChange={setSellerFilter}
+            sellers={uniqueSellers.map(([id, name]) => ({ id, name }))}
             affiliateOrgId={affiliateOrgId}
             onAddLocation={!disabled ? handleAddLocation : undefined}
             onRemoveLocation={!disabled ? handleRemoveLocation : undefined}

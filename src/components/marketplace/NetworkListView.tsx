@@ -8,6 +8,7 @@ interface Props {
   searchQuery: string;
   serviceFilter: string;
   stateFilter: string;
+  sellerFilter: string[];
   showMarketplace?: boolean;
   onAddLocation?: (location: NetworkLocationItem) => void;
   onRemoveLocation?: (location: NetworkLocationItem) => void;
@@ -18,6 +19,7 @@ function applyFilters(
   searchQuery: string,
   serviceFilter: string,
   stateFilter: string,
+  sellerFilter: string[],
 ): NetworkLocationItem[] {
   return locs.filter((loc) => {
     if (searchQuery) {
@@ -36,6 +38,9 @@ function applyFilters(
     if (stateFilter && stateFilter !== "all") {
       if (loc.state !== stateFilter) return false;
     }
+    if (sellerFilter.length > 0) {
+      if (!sellerFilter.includes(loc.sellerOrgId)) return false;
+    }
     return true;
   });
 }
@@ -45,6 +50,7 @@ export function NetworkListView({
   searchQuery,
   serviceFilter,
   stateFilter,
+  sellerFilter,
   showMarketplace,
   onAddLocation,
   onRemoveLocation,
@@ -55,6 +61,7 @@ export function NetworkListView({
     searchQuery,
     serviceFilter,
     stateFilter,
+    sellerFilter,
   );
 
   // Available locations: not included, not self-owned (marketplace)
@@ -64,6 +71,7 @@ export function NetworkListView({
         searchQuery,
         serviceFilter,
         stateFilter,
+        sellerFilter,
       )
     : [];
 

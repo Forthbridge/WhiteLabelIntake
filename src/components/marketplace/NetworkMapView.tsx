@@ -28,13 +28,92 @@ function orgColor(orgId: string): string {
 
 const AMBER_COLOR = "#D97706";
 
+/* ---------- Compact seller multi-select for map overlay ---------- */
+function MapSellerMultiSelect({
+  sellers,
+  selected,
+  onChange,
+}: {
+  sellers: { id: string; name: string }[];
+  selected: string[];
+  onChange: (ids: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  const label =
+    selected.length === 0
+      ? "All Sellers"
+      : selected.length === 1
+        ? sellers.find((s) => s.id === selected[0])?.name ?? "1 seller"
+        : `${selected.length} sellers`;
+
+  function toggle(id: string) {
+    onChange(selected.includes(id) ? selected.filter((s) => s !== id) : [...selected, id]);
+  }
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="text-xs font-medium px-2.5 py-1 rounded-md border border-border/50 bg-white text-foreground transition-colors cursor-pointer flex items-center gap-1"
+      >
+        <span className="truncate max-w-[120px]">{label}</span>
+        <svg className={`w-3 h-3 text-muted transition-transform ${open ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      {open && (
+        <div className="absolute right-0 z-50 mt-1 w-48 max-h-48 overflow-y-auto rounded-md border border-border bg-white shadow-lg">
+          {selected.length > 0 && (
+            <button
+              type="button"
+              onClick={() => onChange([])}
+              className="w-full text-left px-3 py-1.5 text-xs text-brand-teal hover:bg-surface"
+            >
+              Clear filter
+            </button>
+          )}
+          {sellers.map((s) => (
+            <label
+              key={s.id}
+              className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-surface cursor-pointer"
+            >
+              <input
+                type="checkbox"
+                checked={selected.includes(s.id)}
+                onChange={() => toggle(s.id)}
+                className="rounded border-border text-brand-teal focus:ring-brand-teal/30"
+              />
+              <span className="truncate">{s.name}</span>
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface Props {
   locations: NetworkLocationItem[];
   searchQuery: string;
   serviceFilter: string;
   stateFilter: string;
+  sellerFilter: string[];
   showMarketplace?: boolean;
   onToggleMarketplace?: () => void;
+  onSellerFilterChange?: (value: string[]) => void;
+  sellers: { id: string; name: string }[];
   affiliateOrgId?: string;
   onAddLocation?: (location: NetworkLocationItem) => void;
   onRemoveLocation?: (location: NetworkLocationItem) => void;
@@ -45,8 +124,11 @@ export function NetworkMapView({
   searchQuery,
   serviceFilter,
   stateFilter,
+  sellerFilter,
   showMarketplace,
   onToggleMarketplace,
+  onSellerFilterChange,
+  sellers,
   affiliateOrgId,
   onAddLocation,
   onRemoveLocation,
@@ -90,6 +172,9 @@ export function NetworkMapView({
     if (stateFilter && stateFilter !== "all") {
       if (loc.state !== stateFilter) return false;
     }
+    if (sellerFilter.length > 0) {
+      if (!sellerFilter.includes(loc.sellerOrgId)) return false;
+    }
     return true;
   }
 
@@ -125,6 +210,9 @@ export function NetworkMapView({
     }
     if (stateFilter && stateFilter !== "all") {
       if (loc.state !== stateFilter) return false;
+    }
+    if (sellerFilter.length > 0) {
+      if (!sellerFilter.includes(loc.sellerOrgId)) return false;
     }
     return true;
   });
@@ -515,24 +603,33 @@ export function NetworkMapView({
                 </>
               )}
             </div>
-            {onToggleMarketplace && (
-              <button
-                type="button"
-                onClick={onToggleMarketplace}
-                className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md border transition-colors ${
-                  showMarketplace
-                    ? "bg-amber-50 border-amber-200 text-amber-700"
-                    : "bg-white border-border/50 text-muted hover:text-foreground"
-                }`}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M3 3h18v18H3z" />
-                  <path d="M12 3v18" />
-                  <path d="M3 12h18" />
-                </svg>
-                Marketplace
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              {onSellerFilterChange && sellers.length > 1 && (
+                <MapSellerMultiSelect
+                  sellers={sellers}
+                  selected={sellerFilter}
+                  onChange={onSellerFilterChange}
+                />
+              )}
+              {onToggleMarketplace && (
+                <button
+                  type="button"
+                  onClick={onToggleMarketplace}
+                  className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md border transition-colors ${
+                    showMarketplace
+                      ? "bg-amber-50 border-amber-200 text-amber-700"
+                      : "bg-white border-border/50 text-muted hover:text-foreground"
+                  }`}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 3h18v18H3z" />
+                    <path d="M12 3v18" />
+                    <path d="M3 12h18" />
+                  </svg>
+                  Marketplace
+                </button>
+              )}
+            </div>
           </div>
           <div className="flex flex-1 min-h-0">
             {renderListPanel()}

@@ -35,7 +35,6 @@ export async function saveSection1ForAffiliate(
     await prisma.program.update({
       where: { id: ctx.programId },
       data: {
-        programName: parsed.programName || null,
         adminContactName: parsed.adminContactName || null,
         adminContactEmail: parsed.adminContactEmail || null,
         executiveSponsorName: parsed.executiveSponsorName || null,
@@ -62,7 +61,9 @@ export async function saveSection2ForAffiliate(
   if (ctx.programId) {
     await prisma.program.update({
       where: { id: ctx.programId },
-      data: { defaultServicesConfirmed: data.defaultServicesConfirmed },
+      data: {
+        programName: data.programName || null,
+      },
     });
   }
 
@@ -359,7 +360,6 @@ export async function saveSection9ForAffiliate(
   });
 
   const configData = {
-    acknowledged: data.acknowledged,
     primaryEscalationName: data.primaryEscalationName || null,
     primaryEscalationEmail: data.primaryEscalationEmail || null,
     secondaryEscalationName: data.secondaryEscalationName || null,

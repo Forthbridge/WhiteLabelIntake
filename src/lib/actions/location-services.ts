@@ -9,8 +9,8 @@ import type { CompletionStatus, SellerSectionId } from "@/types";
 // ─── Load (for a single seller location) ────────────────────────
 
 export interface LocationServiceState {
-  overrides: Array<{ serviceType: string; available: boolean }>;
-  subServices: Array<{ serviceType: string; subType: string; available: boolean }>;
+  overrides: Array<{ serviceType: string; available: boolean; pricePerVisit: number | null }>;
+  subServices: Array<{ serviceType: string; subType: string; available: boolean; unitPrice: number | null }>;
   hasOverrides: boolean;
 }
 
@@ -23,8 +23,17 @@ export async function loadLocationServices(sellerLocationId: string): Promise<Lo
   ]);
 
   return {
-    overrides: configs.map((c) => ({ serviceType: c.serviceType, available: c.available })),
-    subServices: subs.map((s) => ({ serviceType: s.serviceType, subType: s.subType, available: s.available })),
+    overrides: configs.map((c) => ({
+      serviceType: c.serviceType,
+      available: c.available,
+      pricePerVisit: c.pricePerVisit ? Number(c.pricePerVisit) : null,
+    })),
+    subServices: subs.map((s) => ({
+      serviceType: s.serviceType,
+      subType: s.subType,
+      available: s.available,
+      unitPrice: s.unitPrice ? Number(s.unitPrice) : null,
+    })),
     hasOverrides: configs.length > 0 || subs.length > 0,
   };
 }
@@ -51,8 +60,17 @@ export async function loadAllLocationServices(affiliateId: string): Promise<
     const locConfigs = configs.filter((c) => c.sellerLocationId === locId);
     const locSubs = subs.filter((s) => s.sellerLocationId === locId);
     result[locId] = {
-      overrides: locConfigs.map((c) => ({ serviceType: c.serviceType, available: c.available })),
-      subServices: locSubs.map((s) => ({ serviceType: s.serviceType, subType: s.subType, available: s.available })),
+      overrides: locConfigs.map((c) => ({
+        serviceType: c.serviceType,
+        available: c.available,
+        pricePerVisit: c.pricePerVisit ? Number(c.pricePerVisit) : null,
+      })),
+      subServices: locSubs.map((s) => ({
+        serviceType: s.serviceType,
+        subType: s.subType,
+        available: s.available,
+        unitPrice: s.unitPrice ? Number(s.unitPrice) : null,
+      })),
       hasOverrides: locConfigs.length > 0 || locSubs.length > 0,
     };
   }
@@ -75,7 +93,7 @@ export async function saveLocationServices(
   });
   if (!location) throw new Error("Seller location not found");
 
-  // Upsert overrides
+  // Upsert overrides (including pricePerVisit)
   await Promise.all(
     parsed.overrides.map((o) =>
       prisma.sellerLocationServiceConfig.upsert({
@@ -85,17 +103,21 @@ export async function saveLocationServices(
             serviceType: o.serviceType,
           },
         },
-        update: { available: o.available },
+        update: {
+          available: o.available,
+          pricePerVisit: o.pricePerVisit ?? null,
+        },
         create: {
           sellerLocationId: parsed.locationId,
           serviceType: o.serviceType,
           available: o.available,
+          pricePerVisit: o.pricePerVisit ?? null,
         },
       })
     )
   );
 
-  // Upsert sub-services
+  // Upsert sub-services (including unitPrice)
   await Promise.all(
     parsed.subServices.map((s) =>
       prisma.sellerLocationSubService.upsert({
@@ -106,12 +128,16 @@ export async function saveLocationServices(
             subType: s.subType,
           },
         },
-        update: { available: s.available },
+        update: {
+          available: s.available,
+          unitPrice: s.unitPrice ?? null,
+        },
         create: {
           sellerLocationId: parsed.locationId,
           serviceType: s.serviceType,
           subType: s.subType,
           available: s.available,
+          unitPrice: s.unitPrice ?? null,
         },
       })
     )
@@ -162,7 +188,7 @@ export async function initLocationFromOrgDefaults(
     })
   );
 
-  // Copy org sub-service rows to location
+  // Copy org sub-service rows to location (including unitPrice)
   const subServiceUpserts = orgSubs.map((sub) =>
     prisma.sellerLocationSubService.upsert({
       where: {
@@ -172,12 +198,16 @@ export async function initLocationFromOrgDefaults(
           subType: sub.subType,
         },
       },
-      update: { available: sub.selected },
+      update: {
+        available: sub.selected,
+        unitPrice: sub.unitPrice,
+      },
       create: {
         sellerLocationId,
         serviceType: sub.serviceType,
         subType: sub.subType,
         available: sub.selected,
+        unitPrice: sub.unitPrice,
       },
     })
   );

@@ -13,7 +13,6 @@ export const section3Schema = z.object({
 export type Section3Data = z.infer<typeof section3Schema>;
 
 export const SERVICE_TYPES = [
-  { value: "urgent_primary", label: "Urgent Care & Primary Care Visits", locked: true },
   { value: "labs", label: "Labs" },
   { value: "imaging", label: "Imaging" },
   { value: "immunizations", label: "Immunizations" },

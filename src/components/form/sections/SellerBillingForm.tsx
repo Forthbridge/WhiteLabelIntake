@@ -59,9 +59,9 @@ export function SellerBillingForm({ initialData, onNavigate, onStatusUpdate, dis
       </Card>
 
       <Card>
-        <h3 className="text-lg font-heading font-semibold mb-1">Payout Account</h3>
+        <h3 className="text-lg font-heading font-semibold mb-1">Payment Account</h3>
         <p className="text-xs text-muted mb-5">
-          Bank account where payouts will be deposited. This information is encrypted at the application level for security.
+          Bank account where patient payments collected on your behalf will be deposited. This information is encrypted at the application level for security.
         </p>
         <div className="grid gap-5">
           <Input

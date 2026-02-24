@@ -7,6 +7,7 @@ import { SERVICE_TYPES } from "@/lib/validations/section3";
 import { SUB_SERVICE_TYPES } from "@/lib/validations/section11";
 import type { AllSectionData, SellerFlowData } from "@/components/form/OnboardingClient";
 import type { CompletionStatus } from "@/types";
+import type { SectionReviewRow } from "./section-review";
 import type { Section1Data } from "@/lib/validations/section1";
 import type { Section2Data } from "@/lib/validations/section2";
 import type { Section3Data } from "@/lib/validations/section3";
@@ -38,6 +39,8 @@ interface OnboardingData {
   formStatus: string;
   phases: PhaseInfo[];
   roles: RoleFlags;
+  networkLocationCount: number;
+  sectionReviews: SectionReviewRow[];
   sellerData?: SellerFlowData;
 }
 
@@ -120,6 +123,9 @@ async function loadOnboardingDataByAffiliateId(affiliateId: string): Promise<Onb
       },
       careNavConfigs: { take: 1 },
       phases: { orderBy: { phase: "asc" } },
+      sectionReviews: {
+        select: { sectionId: true, userId: true, confirmedAt: true },
+      },
     },
   });
 
@@ -143,7 +149,6 @@ async function loadOnboardingDataByAffiliateId(affiliateId: string): Promise<Onb
 
   const s1: Section1Data = {
     legalName: affiliate.legalName ?? "",
-    programName: program?.programName ?? "",
     adminContactName: program?.adminContactName ?? "",
     adminContactEmail: program?.adminContactEmail ?? "",
     executiveSponsorName: program?.executiveSponsorName ?? "",
@@ -154,7 +159,7 @@ async function loadOnboardingDataByAffiliateId(affiliateId: string): Promise<Onb
   };
 
   const s2: Section2Data = {
-    defaultServicesConfirmed: program?.defaultServicesConfirmed ?? false,
+    programName: program?.programName ?? "",
   };
 
   const serviceMap = new Map(
@@ -182,7 +187,6 @@ async function loadOnboardingDataByAffiliateId(affiliateId: string): Promise<Onb
   };
 
   const s9: Section9Data = {
-    acknowledged: cn?.acknowledged ?? false,
     primaryEscalationName: cn?.primaryEscalationName ?? "",
     primaryEscalationEmail: cn?.primaryEscalationEmail ?? "",
     secondaryEscalationName: cn?.secondaryEscalationName ?? "",
@@ -268,12 +272,27 @@ async function loadOnboardingDataByAffiliateId(affiliateId: string): Promise<Onb
       integrationAcknowledged: sellerLabNetwork?.integrationAcknowledged ?? false,
     };
 
-    // Build pricing data from offerings with basePricePerVisit
-    const pcOffering = sellerOfferings.find((o) => o.serviceType === "primary_care" && o.selected);
-    const ucOffering = sellerOfferings.find((o) => o.serviceType === "urgent_care" && o.selected);
+    // Build pricing data from offerings + org sub-services
+    const visitPriceOfferings = sellerOfferings.filter(
+      (o) => o.selected && (o.serviceType === "primary_care" || o.serviceType === "urgent_care")
+    );
+
+    // orgSubServices already loaded — extract selected items with prices
+    const allOrgSubs = await prisma.sellerOrgSubService.findMany({
+      where: { affiliateId, selected: true },
+      select: { serviceType: true, subType: true, unitPrice: true },
+    });
+
     const sellerPricing: SellerPricingData = {
-      primaryCarePrice: pcOffering?.basePricePerVisit ? Number(pcOffering.basePricePerVisit) : null,
-      urgentCarePrice: ucOffering?.basePricePerVisit ? Number(ucOffering.basePricePerVisit) : null,
+      visitPrices: visitPriceOfferings.map((o) => ({
+        serviceType: o.serviceType,
+        price: o.basePricePerVisit ? Number(o.basePricePerVisit) : null,
+      })),
+      subServicePrices: allOrgSubs.map((s) => ({
+        serviceType: s.serviceType,
+        subType: s.subType,
+        unitPrice: s.unitPrice ? Number(s.unitPrice) : null,
+      })),
     };
 
     const sellerBilling: SellerBillingData = {
@@ -355,6 +374,8 @@ async function loadOnboardingDataByAffiliateId(affiliateId: string): Promise<Onb
       isAffiliate: affiliate.isAffiliate,
       isSeller: affiliate.isSeller,
     },
+    networkLocationCount,
+    sectionReviews: affiliate.sectionReviews,
     sellerData,
   };
 }
@@ -379,26 +400,29 @@ function computeStatuses(
     paymentAchAccountType: string | null;
     paymentAchRoutingNumber: string | null;
     paymentAchAccountNumber: string | null;
-    defaultServicesConfirmed: boolean;
     services: { selected: boolean }[];
   } | null,
   s3: Section3Data,
-  cn: { acknowledged: boolean; primaryEscalationName: string | null; secondaryEscalationName: string | null } | null,
+  cn: { primaryEscalationName: string | null; secondaryEscalationName: string | null } | null,
   networkLocationCount: number,
 ): Record<number, CompletionStatus> {
   const statuses: Record<number, CompletionStatus> = {};
 
   // Section 1
   if (program) {
-    const fields = [affiliate.legalName, program.programName, program.adminContactName, program.adminContactEmail, program.executiveSponsorName, program.executiveSponsorEmail, program.itContactName];
+    const fields = [affiliate.legalName, program.adminContactName, program.adminContactEmail, program.executiveSponsorName, program.executiveSponsorEmail, program.itContactName];
     const filled = fields.filter(Boolean).length;
     statuses[1] = filled === 0 ? "not_started" : filled === fields.length ? "complete" : "in_progress";
   } else {
     statuses[1] = "not_started";
   }
 
-  // Section 2
-  statuses[2] = program?.defaultServicesConfirmed ? "complete" : "not_started";
+  // Section 2: Plan Name
+  if (program?.programName) {
+    statuses[2] = "complete";
+  } else {
+    statuses[2] = "not_started";
+  }
 
   // Section 3
   const selectedServices = s3.services.filter((s) => s.selected);
@@ -419,7 +443,7 @@ function computeStatuses(
   statuses[5] = networkLocationCount > 0 ? "complete" : "not_started";
 
   // Section 9
-  statuses[9] = !cn ? "not_started" : cn.acknowledged && cn.primaryEscalationName && cn.secondaryEscalationName ? "complete" : "in_progress";
+  statuses[9] = !cn ? "not_started" : cn.primaryEscalationName && cn.secondaryEscalationName ? "complete" : "in_progress";
 
   // Section 10
   statuses[10] = affiliate.status === "SUBMITTED" ? "complete" : "not_started";

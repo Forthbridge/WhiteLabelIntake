@@ -12,26 +12,34 @@ import type { CompletionStatus, SellerSectionId } from "@/types";
 export async function loadSellerPricing(): Promise<SellerPricingData> {
   const ctx = await getSessionContext();
 
-  const offerings = await prisma.sellerServiceOffering.findMany({
-    where: {
-      affiliateId: ctx.affiliateId,
-      serviceType: { in: ["primary_care", "urgent_care"] },
-      selected: true,
-    },
-    select: { serviceType: true, basePricePerVisit: true },
-  });
-
-  const priceMap = new Map(
-    offerings.map((o) => [o.serviceType, o.basePricePerVisit])
-  );
+  const [offerings, orgSubs] = await Promise.all([
+    prisma.sellerServiceOffering.findMany({
+      where: {
+        affiliateId: ctx.affiliateId,
+        serviceType: { in: ["primary_care", "urgent_care"] },
+        selected: true,
+      },
+      select: { serviceType: true, basePricePerVisit: true },
+    }),
+    prisma.sellerOrgSubService.findMany({
+      where: {
+        affiliateId: ctx.affiliateId,
+        selected: true,
+      },
+      select: { serviceType: true, subType: true, unitPrice: true },
+    }),
+  ]);
 
   return {
-    primaryCarePrice: priceMap.get("primary_care")
-      ? Number(priceMap.get("primary_care"))
-      : null,
-    urgentCarePrice: priceMap.get("urgent_care")
-      ? Number(priceMap.get("urgent_care"))
-      : null,
+    visitPrices: offerings.map((o) => ({
+      serviceType: o.serviceType,
+      price: o.basePricePerVisit ? Number(o.basePricePerVisit) : null,
+    })),
+    subServicePrices: orgSubs.map((s) => ({
+      serviceType: s.serviceType,
+      subType: s.subType,
+      unitPrice: s.unitPrice ? Number(s.unitPrice) : null,
+    })),
   };
 }
 
@@ -43,40 +51,44 @@ export async function saveSellerPricing(
   const ctx = await getSessionContext();
   const parsed = sellerPricingSchema.parse(data);
 
-  // Update prices on existing offering rows (only for selected services)
-  const updates: Promise<unknown>[] = [];
-
-  if (parsed.primaryCarePrice !== undefined) {
-    updates.push(
+  // Update visit prices on existing offering rows
+  const visitUpdates: Promise<unknown>[] = [];
+  for (const vp of parsed.visitPrices ?? []) {
+    visitUpdates.push(
       prisma.sellerServiceOffering.updateMany({
         where: {
           affiliateId: ctx.affiliateId,
-          serviceType: "primary_care",
+          serviceType: vp.serviceType,
           selected: true,
         },
         data: {
-          basePricePerVisit: parsed.primaryCarePrice ?? null,
+          basePricePerVisit: vp.price ?? null,
         },
       })
     );
   }
 
-  if (parsed.urgentCarePrice !== undefined) {
-    updates.push(
-      prisma.sellerServiceOffering.updateMany({
+  // Batch-update sub-service unit prices in chunks
+  const subUpdates: Promise<unknown>[] = [];
+  for (const sp of parsed.subServicePrices ?? []) {
+    subUpdates.push(
+      prisma.sellerOrgSubService.updateMany({
         where: {
           affiliateId: ctx.affiliateId,
-          serviceType: "urgent_care",
-          selected: true,
+          serviceType: sp.serviceType,
+          subType: sp.subType,
         },
         data: {
-          basePricePerVisit: parsed.urgentCarePrice ?? null,
+          unitPrice: sp.unitPrice ?? null,
         },
       })
     );
   }
 
-  await Promise.all(updates);
+  // Run all in a transaction for consistency
+  await prisma.$transaction(
+    [...visitUpdates, ...subUpdates].map((p) => p as Prisma.PrismaPromise<unknown>)
+  );
 
   await writeSectionSnapshot(
     107, // S-7 → snapshot id 107

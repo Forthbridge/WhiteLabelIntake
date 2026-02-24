@@ -28,6 +28,7 @@ model User {
   sessions         Session[]
   accounts         Account[]
   sectionSnapshots SectionSnapshot[]
+  sectionReviews        SectionReview[]
   contractTerms         NetworkContractTerm[] @relation("ContractTermUser")
   contractTermUpdates   NetworkContractTerm[] @relation("ContractTermUpdater")
 
@@ -127,6 +128,7 @@ model Affiliate {
   sellerProviders        SellerProvider[]
   sellerLabNetworks      SellerLabNetwork[]
   sellerOrgSubServices   SellerOrgSubService[]
+  sectionReviews         SectionReview[]
 
   @@map("affiliates")
 }
@@ -724,6 +726,7 @@ model SellerOrgSubService {
   serviceType String
   subType     String
   selected    Boolean   @default(true)
+  unitPrice   Decimal?  @db.Decimal(10, 2)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
@@ -752,9 +755,25 @@ model SellerLocationSubService {
   serviceType      String
   subType          String
   available        Boolean        @default(true)
+  unitPrice        Decimal?       @db.Decimal(10, 2)
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 
   @@unique([sellerLocationId, serviceType, subType])
   @@map("seller_location_sub_services")
+}
+
+// ─── Section Review Confirmations ───────────────────────────────
+
+model SectionReview {
+  id          String    @id @default(cuid())
+  affiliateId String
+  affiliate   Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+  sectionId   Int
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+  confirmedAt DateTime  @default(now())
+
+  @@unique([affiliateId, sectionId])
+  @@map("section_reviews")
 }

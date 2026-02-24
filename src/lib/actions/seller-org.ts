@@ -72,7 +72,7 @@ export async function saveSellerOrgInfo(
 export async function computeSellerStatuses(
   affiliateId: string
 ): Promise<Record<SellerSectionId, CompletionStatus>> {
-  const [profile, sellerLocations, sellerProviders, offerings, sellerLab, flows] = await Promise.all([
+  const [profile, sellerLocations, sellerProviders, offerings, sellerLab, flows, orgSubServices] = await Promise.all([
     prisma.sellerProfile.findUnique({ where: { affiliateId } }),
     prisma.sellerLocation.findMany({
       where: { affiliateId },
@@ -85,6 +85,10 @@ export async function computeSellerStatuses(
     prisma.sellerServiceOffering.findMany({ where: { affiliateId } }),
     prisma.sellerLabNetwork.findFirst({ where: { affiliateId } }),
     prisma.onboardingFlow.findFirst({ where: { affiliateId, flowType: "SELLER" } }),
+    prisma.sellerOrgSubService.findMany({
+      where: { affiliateId, selected: true },
+      select: { unitPrice: true },
+    }),
   ]);
 
   const empty: Record<SellerSectionId, CompletionStatus> = { "S-1": "not_started", "S-2": "not_started", "S-3": "not_started", "S-4": "not_started", "S-5": "not_started", "S-6": "not_started", "S-7": "not_started", "S-R": "not_started" };
@@ -107,16 +111,21 @@ export async function computeSellerStatuses(
   const hasCareService = selectedOfferings.some((o) => o.serviceType === "primary_care" || o.serviceType === "urgent_care");
   const s4: CompletionStatus = offerings.length === 0 ? "not_started" : (selectedOfferings.length > 0 && hasCareService) ? "complete" : "in_progress";
 
-  // S-7: Visit Pricing — all selected care services must have prices
+  // S-7: Price List — all selected care services must have visit prices AND all selected sub-services must have unitPrice
   const careOfferings = offerings.filter(
     (o) => o.selected && (o.serviceType === "primary_care" || o.serviceType === "urgent_care")
   );
+  const visitsPriced = careOfferings.filter((o) => o.basePricePerVisit != null).length;
+  const visitsTotal = careOfferings.length;
+  const subsPriced = orgSubServices.filter((s) => s.unitPrice != null).length;
+  const subsTotal = orgSubServices.length;
+  const totalPriced = visitsPriced + subsPriced;
+  const totalItems = visitsTotal + subsTotal;
   let s7: CompletionStatus = "not_started";
-  if (careOfferings.length > 0) {
-    const priced = careOfferings.filter((o) => o.basePricePerVisit != null);
-    if (priced.length === careOfferings.length) {
+  if (totalItems > 0) {
+    if (totalPriced === totalItems) {
       s7 = "complete";
-    } else if (priced.length > 0) {
+    } else if (totalPriced > 0) {
       s7 = "in_progress";
     }
   }

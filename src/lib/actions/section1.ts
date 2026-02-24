@@ -19,7 +19,6 @@ export async function loadSection1(): Promise<Section1Data> {
     ? await prisma.program.findUnique({
         where: { id: ctx.programId },
         select: {
-          programName: true,
           adminContactName: true,
           adminContactEmail: true,
           executiveSponsorName: true,
@@ -33,7 +32,6 @@ export async function loadSection1(): Promise<Section1Data> {
 
   return {
     legalName: affiliate?.legalName ?? "",
-    programName: program?.programName ?? "",
     adminContactName: program?.adminContactName ?? "",
     adminContactEmail: program?.adminContactEmail ?? "",
     executiveSponsorName: program?.executiveSponsorName ?? "",
@@ -60,7 +58,6 @@ export async function saveSection1(data: Section1Data): Promise<Record<number, C
     await prisma.program.update({
       where: { id: ctx.programId },
       data: {
-        programName: parsed.programName || null,
         adminContactName: parsed.adminContactName || null,
         adminContactEmail: parsed.adminContactEmail || null,
         executiveSponsorName: parsed.executiveSponsorName || null,

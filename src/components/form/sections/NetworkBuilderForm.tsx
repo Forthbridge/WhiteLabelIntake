@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import dynamic from "next/dynamic";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/Card";
-import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Checkbox } from "@/components/ui/Checkbox";
@@ -15,6 +14,7 @@ import { loadNetworkData, addLocationTerm, loadSellerPricing } from "@/lib/actio
 import type { NetworkLocationItem, NetworkContractSummary } from "@/lib/actions/network";
 import { SERVICE_TYPES } from "@/lib/validations/section3";
 import { SELLER_SERVICE_TYPES } from "@/lib/validations/seller-services";
+import { SectionNavButtons } from "../SectionNavButtons";
 
 // Lazy-load the map to avoid SSR issues with mapbox-gl
 const NetworkMapView = dynamic(
@@ -127,6 +127,7 @@ export function NetworkBuilderForm({ onNavigate, disabled }: Props) {
   const [pricingModal, setPricingModal] = useState<{
     contractId: string;
     sellerLocationId: string;
+    locationName: string;
   } | null>(null);
 
   // Remove location modal state
@@ -201,6 +202,7 @@ export function NetworkBuilderForm({ onNavigate, disabled }: Props) {
       setPricingModal({
         contractId: location.contractId,
         sellerLocationId: location.sellerLocationId,
+        locationName: location.locationName,
       });
     }
   }
@@ -224,10 +226,10 @@ export function NetworkBuilderForm({ onNavigate, disabled }: Props) {
         <div className="mb-4">
           <h3 className="text-base font-heading font-semibold mb-1">Care Network</h3>
           <p className="text-sm text-muted">
-            Your network of care delivery locations.
+            Your members get care at these locations. Add your own locations or browse the marketplace to partner with sellers.
             {marketplaceEnabled
               ? " Toggle the marketplace to browse and add available seller locations."
-              : " Sellers contracted to your organization appear here automatically."}
+              : ""}
           </p>
         </div>
 
@@ -375,19 +377,13 @@ export function NetworkBuilderForm({ onNavigate, disabled }: Props) {
         </div>
       </Card>
 
-      <div className="flex justify-between pb-4">
-        <Button variant="secondary" type="button" onClick={() => onNavigate(4)}>
-          &larr; Previous
-        </Button>
-        <Button variant="cta" type="button" onClick={() => onNavigate(9)}>
-          Save &amp; Next &rarr;
-        </Button>
-      </div>
+      <SectionNavButtons currentSection={5} onNavigate={onNavigate} />
 
       {pricingModal && (
         <PricingAcceptanceModal
           contractId={pricingModal.contractId}
           sellerLocationId={pricingModal.sellerLocationId}
+          locationName={pricingModal.locationName}
           onClose={() => setPricingModal(null)}
           onAccepted={() => {
             setPricingModal(null);

@@ -280,7 +280,7 @@ export function SellerReviewForm({ sellerData, statuses, onNavigate, onSubmitted
 
       <Card>
         <div className="flex justify-between items-center mb-3">
-          <h3 className="text-base font-heading font-semibold">Billing Setup</h3>
+          <h3 className="text-base font-heading font-semibold">Payment Account</h3>
           {onNavigate && (
             <button type="button" onClick={() => onNavigate("S-6")} className="text-xs text-brand-teal hover:underline">Edit</button>
           )}

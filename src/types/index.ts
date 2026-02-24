@@ -32,7 +32,7 @@ export const SELLER_SECTIONS: SellerSectionMeta[] = [
   { id: "S-2", title: "Physical Locations", description: "Register the physical locations where your organization delivers care. Each location can customize its services, scheduling, and provider availability." },
   { id: "S-3", title: "Providers & Credentials", description: "Add the credentialed providers who deliver care at your locations. Each provider's information is used for credentialing and network directory listings." },
   { id: "S-5", title: "Lab Network", description: "Choose how your organization handles lab work. If you use a preferred lab partner, we'll coordinate setup." },
-  { id: "S-6", title: "Billing Setup", description: "Set up your payout account and upload required banking documents. This information is encrypted and used to process your payments." },
+  { id: "S-6", title: "Payment Account", description: "Set up the bank account where patient payments collected on your behalf will be deposited. This information is encrypted for security." },
   { id: "S-R", title: "Review & Submit", description: "Review all sections and submit" },
 ];
 

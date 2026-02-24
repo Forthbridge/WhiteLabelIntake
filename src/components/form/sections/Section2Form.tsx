@@ -2,7 +2,6 @@
 
 import { useState, useCallback } from "react";
 import { Card } from "@/components/ui/Card";
-import { Checkbox } from "@/components/ui/Checkbox";
 import { useSaveOnNext } from "@/lib/hooks/useSaveOnNext";
 import { saveSection2 } from "@/lib/actions/section2";
 import { saveSection2ForAffiliate } from "@/lib/actions/admin-sections";
@@ -53,16 +52,6 @@ export function Section2Form({ initialData, onNavigate, disabled }: { initialDat
           ))}
         </div>
 
-        <div className="border-t border-border pt-4">
-          <Checkbox
-            label="Confirmed"
-            name="defaultServicesConfirmed"
-            checked={data.defaultServicesConfirmed}
-            onChange={(e) =>
-              setData({ defaultServicesConfirmed: e.target.checked })
-            }
-          />
-        </div>
       </Card>
 
       <SectionNavButtons currentSection={2} onNavigate={onNavigate} onSave={save} />

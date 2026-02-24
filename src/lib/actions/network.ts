@@ -10,6 +10,7 @@ export interface PricingItem {
   serviceType: string;
   label: string;
   price: string | null; // formatted price or null if not set
+  subType?: string; // present for sub-service pricing items
 }
 
 export interface NetworkLocationItem {
@@ -151,15 +152,24 @@ export async function loadNetworkData(): Promise<NetworkDataPayload> {
       serviceConfigs: {
         select: { serviceType: true, available: true, pricePerVisit: true },
       },
+      subServices: {
+        select: { serviceType: true, subType: true, unitPrice: true, available: true },
+      },
     },
     orderBy: { createdAt: "asc" },
   });
 
   // Load org-level service offerings for pricing resolution
-  const orgOfferings = await prisma.sellerServiceOffering.findMany({
-    where: { affiliateId: { in: sellerIds }, selected: true },
-    select: { affiliateId: true, serviceType: true, basePricePerVisit: true },
-  });
+  const [orgOfferings, orgSubServices] = await Promise.all([
+    prisma.sellerServiceOffering.findMany({
+      where: { affiliateId: { in: sellerIds }, selected: true },
+      select: { affiliateId: true, serviceType: true, basePricePerVisit: true },
+    }),
+    prisma.sellerOrgSubService.findMany({
+      where: { affiliateId: { in: sellerIds }, selected: true, unitPrice: { not: null } },
+      select: { affiliateId: true, serviceType: true, subType: true, unitPrice: true },
+    }),
+  ]);
 
   // Build a map: sellerId -> serviceType -> orgPrice
   const orgPriceMap = new Map<string, Map<string, Prisma.Decimal | null>>();
@@ -168,6 +178,16 @@ export async function loadNetworkData(): Promise<NetworkDataPayload> {
       orgPriceMap.set(o.affiliateId, new Map());
     }
     orgPriceMap.get(o.affiliateId)!.set(o.serviceType, o.basePricePerVisit);
+  }
+
+  // Build a map: sellerId -> "serviceType:subType" -> orgUnitPrice
+  const orgSubPriceMap = new Map<string, Map<string, Prisma.Decimal>>();
+  for (const s of orgSubServices) {
+    if (!s.unitPrice) continue;
+    if (!orgSubPriceMap.has(s.affiliateId)) {
+      orgSubPriceMap.set(s.affiliateId, new Map());
+    }
+    orgSubPriceMap.get(s.affiliateId)!.set(`${s.serviceType}:${s.subType}`, s.unitPrice);
   }
 
   const locations: NetworkLocationItem[] = [];
@@ -212,6 +232,26 @@ export async function loadNetworkData(): Promise<NetworkDataPayload> {
               serviceType: svc,
               label: svc,
               price: `$${Number(orgPrice).toFixed(2)}`,
+            });
+          }
+        }
+
+        // Add sub-service pricing items (org-level; location overrides resolved below)
+        const sellerSubPrices = orgSubPriceMap.get(contract.sellerId);
+        if (sellerSubPrices) {
+          for (const [key, unitPrice] of sellerSubPrices) {
+            const [svcType, subType] = key.split(":");
+            // Check if location has a sub-service override
+            const locSub = loc.subServices?.find(
+              (ls: { serviceType: string; subType: string; unitPrice?: Prisma.Decimal | null }) =>
+                ls.serviceType === svcType && ls.subType === subType
+            );
+            const resolvedPrice = locSub?.unitPrice ?? unitPrice;
+            pricingItems.push({
+              serviceType: svcType,
+              subType,
+              label: subType,
+              price: `$${Number(resolvedPrice).toFixed(2)}`,
             });
           }
         }
@@ -371,6 +411,7 @@ export interface SellerPricingData {
   sellerName: string | null;
   locationCount: number;
   services: { serviceType: string; price: number | null }[];
+  subServicePrices: { serviceType: string; subType: string; label: string; unitPrice: number | null }[];
 }
 
 export async function loadSellerPricing(contractId: string): Promise<SellerPricingData> {
@@ -384,7 +425,7 @@ export async function loadSellerPricing(contractId: string): Promise<SellerPrici
     throw new Error("Contract not found");
   }
 
-  const [seller, offerings, locationCount] = await Promise.all([
+  const [seller, offerings, locationCount, orgSubs] = await Promise.all([
     prisma.affiliate.findUnique({
       where: { id: contract.sellerId },
       select: { legalName: true },
@@ -395,6 +436,11 @@ export async function loadSellerPricing(contractId: string): Promise<SellerPrici
       orderBy: { serviceType: "asc" },
     }),
     prisma.sellerLocation.count({ where: { affiliateId: contract.sellerId } }),
+    prisma.sellerOrgSubService.findMany({
+      where: { affiliateId: contract.sellerId, selected: true },
+      select: { serviceType: true, subType: true, unitPrice: true },
+      orderBy: [{ serviceType: "asc" }, { subType: "asc" }],
+    }),
   ]);
 
   return {
@@ -403,6 +449,12 @@ export async function loadSellerPricing(contractId: string): Promise<SellerPrici
     services: offerings.map((o) => ({
       serviceType: o.serviceType,
       price: o.basePricePerVisit ? Number(o.basePricePerVisit) : null,
+    })),
+    subServicePrices: orgSubs.map((s) => ({
+      serviceType: s.serviceType,
+      subType: s.subType,
+      label: s.subType, // label resolved client-side via SUB_SERVICE_TYPES
+      unitPrice: s.unitPrice ? Number(s.unitPrice) : null,
     })),
   };
 }

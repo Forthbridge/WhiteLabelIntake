@@ -46,15 +46,6 @@ export function Section1Form({ initialData, onNavigate, disabled }: { initialDat
             onChange={(e) => update("legalName", e.target.value)}
             placeholder="Full legal entity name"
           />
-          <Input
-            label="Program Name"
-            name="programName"
-            required
-            value={data.programName ?? ""}
-            onChange={(e) => update("programName", e.target.value)}
-            placeholder='e.g., "PRIME"'
-            helperText="The name members will hear and reference"
-          />
         </div>
       </Card>
 

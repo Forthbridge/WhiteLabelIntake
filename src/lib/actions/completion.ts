@@ -28,15 +28,19 @@ export async function getCompletionStatuses(affiliateId: string): Promise<Record
 
   // Section 1: Client & Program Overview
   if (program) {
-    const fields = [affiliate?.legalName, program.programName, program.adminContactName, program.adminContactEmail, program.executiveSponsorName, program.executiveSponsorEmail, program.itContactName];
+    const fields = [affiliate?.legalName, program.adminContactName, program.adminContactEmail, program.executiveSponsorName, program.executiveSponsorEmail, program.itContactName];
     const filled = fields.filter(Boolean).length;
     statuses[1] = filled === 0 ? "not_started" : filled === fields.length ? "complete" : "in_progress";
   } else {
     statuses[1] = "not_started";
   }
 
-  // Section 2: Default Program Services
-  statuses[2] = program?.defaultServicesConfirmed ? "complete" : "not_started";
+  // Section 2: Plan Name
+  if (program?.programName) {
+    statuses[2] = "complete";
+  } else {
+    statuses[2] = "not_started";
+  }
 
   // Section 3: In-Person & Extended Services
   const services = await prisma.service.findMany({ where: { programId: program?.id ?? "" } });
@@ -74,7 +78,7 @@ export async function getCompletionStatuses(affiliateId: string): Promise<Record
 
   // Section 9: Care Navigation
   const cn = await prisma.careNavConfig.findFirst({ where: { affiliateId } });
-  statuses[9] = !cn ? "not_started" : cn.acknowledged && cn.primaryEscalationName && cn.secondaryEscalationName ? "complete" : "in_progress";
+  statuses[9] = !cn ? "not_started" : cn.primaryEscalationName && cn.secondaryEscalationName ? "complete" : "in_progress";
 
   // Section 10: Review & Submit
   statuses[10] = affiliate?.status === "SUBMITTED" ? "complete" : "not_started";

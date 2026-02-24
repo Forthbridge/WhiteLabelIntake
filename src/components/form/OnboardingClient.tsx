@@ -9,10 +9,8 @@ import { getSectionMeta, getVisibleSections, getSellerSectionMeta, SELLER_SECTIO
 import type { SectionId, CompletionStatus, FlowType, SellerSectionId } from "@/types";
 import { CompletionProvider, useCompletion } from "@/lib/contexts/CompletionContext";
 import { Section1Form } from "./sections/Section1Form";
-import { Section2Form } from "./sections/Section2Form";
-import { Section3Form } from "./sections/Section3Form";
+import { PlanDefinitionForm } from "./sections/PlanDefinitionForm";
 import { Section4Form } from "./sections/Section4Form";
-import { Section9Form } from "./sections/Section9Form";
 import { ReviewForm } from "./sections/ReviewForm";
 import { NetworkBuilderForm } from "./sections/NetworkBuilderForm";
 import { SellerOrgInfoForm } from "./sections/SellerOrgInfoForm";
@@ -38,6 +36,7 @@ import type { SellerPricingData } from "@/lib/validations/seller-pricing";
 import type { LocationServiceState } from "@/lib/actions/location-services";
 import type { SellerLocationsData, SellerLocationData } from "@/lib/actions/seller-locations";
 import type { SellerProvidersData, SellerProviderData } from "@/lib/actions/seller-providers";
+import type { SectionReviewRow } from "@/lib/actions/section-review";
 
 export interface AllSectionData {
   1: Section1Data;
@@ -128,10 +127,12 @@ interface OnboardingClientProps {
   formStatus?: string;
   phases?: PhaseInfo[];
   roles?: RoleFlags;
+  networkLocationCount?: number;
+  sectionReviews?: SectionReviewRow[];
   sellerData?: SellerFlowData;
 }
 
-export function OnboardingClient({ sectionData, initialStatuses, affiliateId, formStatus, phases, roles, sellerData }: OnboardingClientProps) {
+export function OnboardingClient({ sectionData, initialStatuses, affiliateId, formStatus, phases, roles, networkLocationCount, sectionReviews, sellerData }: OnboardingClientProps) {
   return (
     <CompletionProvider
       initialStatuses={initialStatuses}
@@ -142,6 +143,8 @@ export function OnboardingClient({ sectionData, initialStatuses, affiliateId, fo
       <OnboardingClientInner
         sectionData={sectionData}
         roles={roles ?? { isAffiliate: true, isSeller: false }}
+        networkLocationCount={networkLocationCount ?? 0}
+        sectionReviews={sectionReviews ?? []}
         sellerData={sellerData}
       />
     </CompletionProvider>
@@ -151,10 +154,14 @@ export function OnboardingClient({ sectionData, initialStatuses, affiliateId, fo
 function OnboardingClientInner({
   sectionData,
   roles,
+  networkLocationCount,
+  sectionReviews,
   sellerData,
 }: {
   sectionData: AllSectionData;
   roles: RoleFlags;
+  networkLocationCount: number;
+  sectionReviews: SectionReviewRow[];
   sellerData?: SellerFlowData;
 }) {
   const isDualRole = roles.isAffiliate && roles.isSeller;
@@ -223,17 +230,22 @@ function OnboardingClientInner({
       case 1:
         return <Section1Form initialData={cache[1]} onNavigate={handleNavigate} disabled={locked} />;
       case 2:
-        return <Section2Form initialData={cache[2]} onNavigate={handleNavigate} disabled={locked} />;
-      case 3:
-        return <Section3Form initialData={cache[3]} initialSubServiceData={cache[11]} onNavigate={handleNavigate} disabled={locked} />;
+        return (
+          <PlanDefinitionForm
+            initialSection2Data={cache[2]}
+            initialSection3Data={cache[3]}
+            initialSection9Data={cache[9]}
+            initialSubServiceData={cache[11]}
+            onNavigate={handleNavigate}
+            disabled={locked}
+          />
+        );
       case 4:
         return <Section4Form initialData={cache[4]} onNavigate={handleNavigate} disabled={locked} />;
       case 5:
         return <NetworkBuilderForm onNavigate={handleNavigate} disabled={locked} />;
-      case 9:
-        return <Section9Form initialData={cache[9]} onNavigate={handleNavigate} disabled={locked} />;
       case 10:
-        return <ReviewForm onNavigate={handleNavigate} />;
+        return <ReviewForm data={cache} networkLocationCount={networkLocationCount} initialSectionReviews={sectionReviews} onNavigate={handleNavigate} />;
       default:
         return null;
     }
@@ -272,6 +284,7 @@ function OnboardingClientInner({
             sellerServiceOfferings={sellerServices.services}
             locationServices={sellerCache?.locationServices}
             orgSubServices={sellerCache?.orgSubServices}
+            orgPricing={sellerCache?.pricing}
             onNavigate={handleSellerNavigate}
             onStatusUpdate={handleSellerStatusUpdate}
             disabled={sellerLocked}
@@ -298,11 +311,12 @@ function OnboardingClientInner({
           />
         );
       case "S-7": {
-        const defaultPricing: SellerPricingData = { primaryCarePrice: null, urgentCarePrice: null };
+        const defaultPricing: SellerPricingData = { visitPrices: [], subServicePrices: [] };
         return (
           <SellerPricingForm
             initialData={sellerCache?.pricing ?? defaultPricing}
             serviceSelections={sellerServices.services}
+            orgSubServices={sellerCache?.orgSubServices}
             onNavigate={handleSellerNavigate}
             onStatusUpdate={handleSellerStatusUpdate}
             disabled={sellerLocked}
@@ -341,8 +355,8 @@ function OnboardingClientInner({
     }
   }
 
-  // Determine phase label for header
-  const phaseLabel = meta?.phase === "program" ? "Program" : meta?.phase === "operations" ? "Operations" : "Review";
+  // Position of the active section within the visible (non-hidden) list
+  const activeSectionIndex = visibleSections.findIndex((s) => s.id === activeSection) + 1;
 
   return (
     <SavingCtx.Provider value={setIsSaving}>
@@ -399,7 +413,7 @@ function OnboardingClientInner({
                 {meta && (
                   <div className="mb-8">
                     <p className="text-xs font-semibold uppercase tracking-wider text-muted mb-1">
-                      Section {activeSection} of {visibleSections.length} &middot; {phaseLabel}
+                      Step {activeSectionIndex} of {visibleSections.length}
                     </p>
                     <h1 className="text-2xl font-heading font-semibold text-brand-black">
                       {meta.title}

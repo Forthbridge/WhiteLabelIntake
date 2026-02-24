@@ -12,12 +12,12 @@ export async function loadSection2(): Promise<Section2Data> {
   const program = ctx.programId
     ? await prisma.program.findUnique({
         where: { id: ctx.programId },
-        select: { defaultServicesConfirmed: true },
+        select: { programName: true },
       })
     : null;
 
   return {
-    defaultServicesConfirmed: program?.defaultServicesConfirmed ?? false,
+    programName: program?.programName ?? "",
   };
 }
 
@@ -28,7 +28,9 @@ export async function saveSection2(data: Section2Data): Promise<Record<number, C
   if (ctx.programId) {
     await prisma.program.update({
       where: { id: ctx.programId },
-      data: { defaultServicesConfirmed: data.defaultServicesConfirmed },
+      data: {
+        programName: data.programName || null,
+      },
     });
   }
 

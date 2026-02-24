@@ -3,7 +3,6 @@
 import { useState, useCallback } from "react";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
-import { Checkbox } from "@/components/ui/Checkbox";
 import { useSaveOnNext } from "@/lib/hooks/useSaveOnNext";
 import { saveSection9 } from "@/lib/actions/section9";
 import { saveSection9ForAffiliate } from "@/lib/actions/admin-sections";
@@ -55,13 +54,6 @@ export function Section9Form({ initialData, onNavigate, disabled }: { initialDat
             </li>
           ))}
         </ul>
-        <div className="mt-5 pt-4 border-t border-border">
-          <Checkbox
-            label="I acknowledge that these standard Care Navigation services are included in our program."
-            checked={data.acknowledged}
-            onChange={(e) => update("acknowledged", e.target.checked)}
-          />
-        </div>
       </Card>
 
       <Card>

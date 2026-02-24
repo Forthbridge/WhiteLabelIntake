@@ -56,7 +56,7 @@ export function Section4Form({ initialData, onNavigate, disabled }: { initialDat
       <Card>
         <h3 className="text-lg font-heading font-semibold mb-1">Payout Account</h3>
         <p className="text-xs text-muted mb-5">
-          Bank account where payouts will be deposited. This information is encrypted at the application level for security.
+          This is where we deposit payouts to you. This information is encrypted at the application level for security.
         </p>
         <div className="grid gap-5">
           <Input label="Account Holder Name" name="achAccountHolderName" required value={data.achAccountHolderName ?? ""} onChange={(e) => update("achAccountHolderName", e.target.value)} />
@@ -83,7 +83,7 @@ export function Section4Form({ initialData, onNavigate, disabled }: { initialDat
       <Card>
         <h3 className="text-lg font-heading font-semibold mb-1">Payment Account (Invoice Autocollect)</h3>
         <p className="text-xs text-muted mb-5">
-          Bank account for automated invoice collection. This information is encrypted at the application level for security.
+          This is the account we&apos;ll use to automatically collect invoices. This information is encrypted at the application level for security.
         </p>
         <div className="grid gap-5">
           <Input label="Account Holder Name" name="paymentAchAccountHolderName" required value={data.paymentAchAccountHolderName ?? ""} onChange={(e) => update("paymentAchAccountHolderName", e.target.value)} />

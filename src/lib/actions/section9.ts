@@ -14,7 +14,6 @@ export async function loadSection9(): Promise<Section9Data> {
   });
 
   return {
-    acknowledged: config?.acknowledged ?? false,
     primaryEscalationName: config?.primaryEscalationName ?? "",
     primaryEscalationEmail: config?.primaryEscalationEmail ?? "",
     secondaryEscalationName: config?.secondaryEscalationName ?? "",
@@ -31,7 +30,6 @@ export async function saveSection9(data: Section9Data): Promise<Record<number, C
   });
 
   const configData = {
-    acknowledged: data.acknowledged,
     primaryEscalationName: data.primaryEscalationName || null,
     primaryEscalationEmail: data.primaryEscalationEmail || null,
     secondaryEscalationName: data.secondaryEscalationName || null,

@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
  * Gets the authenticated user's affiliate and program IDs.
  * Throws if not authenticated or no affiliate found.
  */
-export async function getSessionContext() {
+export async function getSessionContext(selectedProgramId?: string) {
   const session = await auth();
   if (!session?.user?.id) throw new Error("Not authenticated");
 
@@ -18,21 +18,32 @@ export async function getSessionContext() {
 
   if (!user?.affiliateId) throw new Error("No affiliate found for user");
 
-  const [program, affiliate] = await Promise.all([
-    prisma.program.findFirst({
+  // Resolve program ID: prefer explicit selection, fall back to first program
+  let programId: string | null = null;
+  if (selectedProgramId) {
+    const program = await prisma.program.findFirst({
+      where: { id: selectedProgramId, affiliateId: user.affiliateId },
+      select: { id: true },
+    });
+    programId = program?.id ?? null;
+  }
+  if (!programId) {
+    const program = await prisma.program.findFirst({
       where: { affiliateId: user.affiliateId },
       select: { id: true },
-    }),
-    prisma.affiliate.findUnique({
-      where: { id: user.affiliateId },
-      select: { isAffiliate: true, isSeller: true },
-    }),
-  ]);
+    });
+    programId = program?.id ?? null;
+  }
+
+  const affiliate = await prisma.affiliate.findUnique({
+    where: { id: user.affiliateId },
+    select: { isAffiliate: true, isSeller: true },
+  });
 
   return {
     userId: user.id,
     affiliateId: user.affiliateId,
-    programId: program?.id ?? null,
+    programId,
     role: user.role,
     isAffiliate: affiliate?.isAffiliate ?? true,
     isSeller: affiliate?.isSeller ?? false,
@@ -61,7 +72,7 @@ export async function getSuperAdminContext(): Promise<{ userId: string; role: st
  * Resolves context for a specific affiliate.
  * SUPER_ADMIN can target any affiliate; other roles can only access their own.
  */
-export async function getContextForAffiliate(targetAffiliateId: string): Promise<{
+export async function getContextForAffiliate(targetAffiliateId: string, selectedProgramId?: string): Promise<{
   userId: string;
   affiliateId: string;
   programId: string | null;
@@ -82,15 +93,26 @@ export async function getContextForAffiliate(targetAffiliateId: string): Promise
     throw new Error("Forbidden: cannot access this affiliate");
   }
 
-  const program = await prisma.program.findFirst({
-    where: { affiliateId: targetAffiliateId },
-    select: { id: true },
-  });
+  let programId: string | null = null;
+  if (selectedProgramId) {
+    const program = await prisma.program.findFirst({
+      where: { id: selectedProgramId, affiliateId: targetAffiliateId },
+      select: { id: true },
+    });
+    programId = program?.id ?? null;
+  }
+  if (!programId) {
+    const program = await prisma.program.findFirst({
+      where: { affiliateId: targetAffiliateId },
+      select: { id: true },
+    });
+    programId = program?.id ?? null;
+  }
 
   return {
     userId: user.id,
     affiliateId: targetAffiliateId,
-    programId: program?.id ?? null,
+    programId,
     role: user.role,
   };
 }

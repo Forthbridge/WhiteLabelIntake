@@ -1,27 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/Card";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { Button } from "@/components/ui/Button";
-import { loadSection1 } from "@/lib/actions/section1";
-import { loadSection2 } from "@/lib/actions/section2";
-import { loadSection3 } from "@/lib/actions/section3";
-import { loadSection9 } from "@/lib/actions/section9";
 import { submitForm } from "@/lib/actions/submit";
-import { SERVICE_TYPES } from "@/lib/validations/section3";
+import { toggleSectionReview } from "@/lib/actions/section-review";
 import { SECTIONS } from "@/types";
 import { useCompletion } from "@/lib/contexts/CompletionContext";
-
-interface ReviewData {
-  loaded: boolean;
-  section1: Awaited<ReturnType<typeof loadSection1>> | null;
-  section2: Awaited<ReturnType<typeof loadSection2>> | null;
-  section3: Awaited<ReturnType<typeof loadSection3>> | null;
-  section9: Awaited<ReturnType<typeof loadSection9>> | null;
-  networkLocationCount: number;
-}
+import { SectionNavButtons } from "@/components/form/SectionNavButtons";
+import { SERVICE_TYPES } from "@/lib/validations/section3";
+import { SUB_SERVICE_TYPES } from "@/lib/validations/section11";
+import type { AllSectionData } from "@/components/form/OnboardingClient";
+import type { SectionReviewRow } from "@/lib/actions/section-review";
 
 function Field({ label, value }: { label: string; value: string | number | null | undefined }) {
   return (
@@ -43,38 +35,46 @@ function EditButton({ section, onNavigate }: { section: number; onNavigate?: (se
   return null;
 }
 
+const REVIEW_SECTIONS = [
+  { id: 1, title: "Company & Contacts" },
+  { id: 2, title: "Your Plan" },
+  { id: 5, title: "Care Network" },
+  { id: 4, title: "Payouts & Payments" },
+] as const;
+
 interface ReviewFormProps {
+  data: AllSectionData;
+  networkLocationCount: number;
+  initialSectionReviews: SectionReviewRow[];
   onNavigate?: (section: number) => void;
 }
 
-export function ReviewForm({ onNavigate }: ReviewFormProps) {
+export function ReviewForm({ data, networkLocationCount, initialSectionReviews, onNavigate }: ReviewFormProps) {
   const { statuses, formStatus, refreshStatuses } = useCompletion();
   const sectionsToComplete = SECTIONS.filter((s) => s.id !== 10 && !s.hidden && s.minPhase === 1);
   const allComplete = sectionsToComplete.every((s) => statuses[s.id] === "complete");
 
-  const [data, setData] = useState<ReviewData>({
-    loaded: false,
-    section1: null, section2: null, section3: null,
-    section9: null,
-    networkLocationCount: 0,
-  });
-  const [confirmed, setConfirmed] = useState(false);
+  // Build initial reviewed state from DB rows
+  const initialReviewed: Record<number, boolean> = {};
+  for (const row of initialSectionReviews) {
+    initialReviewed[row.sectionId] = true;
+  }
+  const [reviewedSections, setReviewedSections] = useState<Record<number, boolean>>(initialReviewed);
+  const allReviewed = REVIEW_SECTIONS.every((s) => reviewedSections[s.id]);
+
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
-  useEffect(() => {
-    Promise.all([
-      loadSection1(), loadSection2(), loadSection3(),
-      loadSection9(),
-    ]).then(([s1, s2, s3, s9]) => {
-      setData({
-        loaded: true,
-        section1: s1, section2: s2, section3: s3,
-        section9: s9,
-        networkLocationCount: 0, // TODO: load from network actions when available
-      });
-    });
-  }, []);
+  async function handleToggleReview(sectionId: number, checked: boolean) {
+    setReviewedSections((prev) => ({ ...prev, [sectionId]: checked }));
+    try {
+      await toggleSectionReview(sectionId, checked);
+    } catch {
+      // Revert on failure
+      setReviewedSections((prev) => ({ ...prev, [sectionId]: !checked }));
+      toast.error("Failed to save review confirmation.");
+    }
+  }
 
   async function handleSubmit() {
     setSubmitting(true);
@@ -88,8 +88,6 @@ export function ReviewForm({ onNavigate }: ReviewFormProps) {
       setSubmitting(false);
     }
   }
-
-  if (!data.loaded) return <div className="text-muted text-sm">Loading review...</div>;
 
   if (submitted) {
     return (
@@ -107,9 +105,16 @@ export function ReviewForm({ onNavigate }: ReviewFormProps) {
     );
   }
 
-  const s1 = data.section1!;
-  const s3 = data.section3!;
+  const s1 = data[1];
+  const s2 = data[2];
+  const s3 = data[3];
+  const s4 = data[4];
+  const s11 = data[11];
+
+  // Build extended services summary from section 3 + 11
   const selectedServices = s3.services.filter((s) => s.selected);
+  const serviceLabel = (value: string) =>
+    SERVICE_TYPES.find((st) => st.value === value)?.label ?? value;
 
   return (
     <div className="flex flex-col gap-6">
@@ -149,79 +154,128 @@ export function ReviewForm({ onNavigate }: ReviewFormProps) {
         )}
       </Card>
 
-      {/* Program Phase */}
-      <h2 className="text-xl font-heading font-semibold text-brand-black">Program</h2>
-
+      {/* Section 1: Company & Contacts */}
       <Card>
         <div className="flex justify-between items-center mb-3">
-          <h3 className="text-base font-heading font-semibold">Client & Program Overview</h3>
+          <h3 className="text-base font-heading font-semibold">Company & Contacts</h3>
           <EditButton section={1} onNavigate={onNavigate} />
         </div>
         <Field label="Legal Name" value={s1.legalName} />
-        <Field label="Program Name" value={s1.programName} />
         <Field label="Admin Contact" value={s1.adminContactName ? `${s1.adminContactName} (${s1.adminContactEmail})` : undefined} />
         <Field label="Executive Sponsor" value={s1.executiveSponsorName ? `${s1.executiveSponsorName} (${s1.executiveSponsorEmail})` : undefined} />
         <Field label="IT Contact" value={s1.itContactName ? `${s1.itContactName} (${s1.itContactEmail})` : undefined} />
+        <div className="border-t border-border/50 pt-3 mt-3">
+          <Checkbox
+            label="I've reviewed Company & Contacts"
+            name="review-section-1"
+            checked={!!reviewedSections[1]}
+            onChange={(e) => handleToggleReview(1, e.target.checked)}
+            disabled={formStatus === "SUBMITTED"}
+          />
+        </div>
       </Card>
 
+      {/* Section 2: Your Plan */}
       <Card>
         <div className="flex justify-between items-center mb-3">
-          <h3 className="text-base font-heading font-semibold">Default Services</h3>
+          <h3 className="text-base font-heading font-semibold">Your Plan</h3>
           <EditButton section={2} onNavigate={onNavigate} />
         </div>
-        <Field label="Confirmed" value={data.section2?.defaultServicesConfirmed ? "Yes" : "No"} />
-      </Card>
+        <Field label="Plan Name" value={s2.programName} />
 
-      <Card>
-        <div className="flex justify-between items-center mb-3">
-          <h3 className="text-base font-heading font-semibold">In-Person & Extended Services</h3>
-          <EditButton section={3} onNavigate={onNavigate} />
-        </div>
-        {selectedServices.length > 0 ? (
-          <ul className="text-sm space-y-1">
-            {selectedServices.map((s) => {
-              const label = SERVICE_TYPES.find((st) => st.value === s.serviceType)?.label ?? s.serviceType;
-              return <li key={s.serviceType}>{label}{s.otherName ? `: ${s.otherName}` : ""}</li>;
-            })}
-          </ul>
-        ) : (
-          <p className="text-sm text-muted">No services selected</p>
+        {/* Extended Services */}
+        {selectedServices.length > 0 && (
+          <div className="mt-3 pt-3 border-t border-border/50">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted mb-2">Extended Services</p>
+            <div className="flex flex-col gap-1">
+              {selectedServices.map((svc) => {
+                const totalSubs = SUB_SERVICE_TYPES[svc.serviceType]?.length ?? 0;
+                const selectedSubs = s11?.categories[svc.serviceType]?.filter((sub) => sub.selected).length ?? 0;
+                return (
+                  <div key={svc.serviceType} className="flex justify-between py-1 text-sm">
+                    <span className="text-foreground">{serviceLabel(svc.serviceType)}</span>
+                    {totalSubs > 0 ? (
+                      <span className="text-muted">{selectedSubs} of {totalSubs} configured</span>
+                    ) : (
+                      <span className="text-success text-xs">Selected</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         )}
-      </Card>
-
-      <Card>
-        <div className="flex justify-between items-center mb-3">
-          <h3 className="text-base font-heading font-semibold">Payouts & Payments</h3>
-          <EditButton section={4} onNavigate={onNavigate} />
+        <div className="border-t border-border/50 pt-3 mt-3">
+          <Checkbox
+            label="I've reviewed Your Plan"
+            name="review-section-2"
+            checked={!!reviewedSections[2]}
+            onChange={(e) => handleToggleReview(2, e.target.checked)}
+            disabled={formStatus === "SUBMITTED"}
+          />
         </div>
-        <p className="text-sm text-muted">Payment information submitted (details hidden for security).</p>
       </Card>
 
-      {/* Operations Phase */}
-      <h2 className="text-xl font-heading font-semibold text-brand-black mt-4">Operations</h2>
-
+      {/* Section 5: Care Network */}
       <Card>
         <div className="flex justify-between items-center mb-3">
           <h3 className="text-base font-heading font-semibold">Care Network</h3>
           <EditButton section={5} onNavigate={onNavigate} />
         </div>
-        {statuses[5] === "complete" ? (
+        {networkLocationCount > 0 ? (
           <p className="text-sm text-foreground">
-            Network configured with contracted care delivery locations.
+            {networkLocationCount} {networkLocationCount === 1 ? "location" : "locations"} in your network
           </p>
         ) : (
           <p className="text-sm text-muted">No care delivery locations in your network yet.</p>
         )}
+        <div className="border-t border-border/50 pt-3 mt-3">
+          <Checkbox
+            label="I've reviewed Care Network"
+            name="review-section-5"
+            checked={!!reviewedSections[5]}
+            onChange={(e) => handleToggleReview(5, e.target.checked)}
+            disabled={formStatus === "SUBMITTED"}
+          />
+        </div>
       </Card>
 
+      {/* Section 4: Payouts & Payments */}
       <Card>
         <div className="flex justify-between items-center mb-3">
-          <h3 className="text-base font-heading font-semibold">Care Navigation</h3>
-          <EditButton section={9} onNavigate={onNavigate} />
+          <h3 className="text-base font-heading font-semibold">Payouts & Payments</h3>
+          <EditButton section={4} onNavigate={onNavigate} />
         </div>
-        <Field label="Acknowledged" value={data.section9?.acknowledged ? "Yes" : "No"} />
-        <Field label="Primary Escalation" value={data.section9?.primaryEscalationName} />
-        <Field label="Secondary Escalation" value={data.section9?.secondaryEscalationName} />
+
+        {/* Payout Account */}
+        <div className="mb-3">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted mb-1">Payout Account</p>
+          <Field label="Account Holder" value={s4.achAccountHolderName} />
+          <Field label="Account Type" value={s4.achAccountType === "checking" ? "Checking" : s4.achAccountType === "savings" ? "Savings" : undefined} />
+        </div>
+
+        {/* Payment Account */}
+        <div className="mb-3 pt-2 border-t border-border/50">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted mb-1">Payment Account</p>
+          <Field label="Account Holder" value={s4.paymentAchAccountHolderName} />
+          <Field label="Account Type" value={s4.paymentAchAccountType === "checking" ? "Checking" : s4.paymentAchAccountType === "savings" ? "Savings" : undefined} />
+        </div>
+
+        {/* Documents */}
+        <div className="pt-2 border-t border-border/50">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted mb-1">Documents</p>
+          <Field label="W-9" value={s4.w9FilePath ? "Uploaded" : "Not uploaded"} />
+          <Field label="Bank Letter" value={s4.bankDocFilePath ? "Uploaded" : "Not uploaded"} />
+        </div>
+        <div className="border-t border-border/50 pt-3 mt-3">
+          <Checkbox
+            label="I've reviewed Payouts & Payments"
+            name="review-section-4"
+            checked={!!reviewedSections[4]}
+            onChange={(e) => handleToggleReview(4, e.target.checked)}
+            disabled={formStatus === "SUBMITTED"}
+          />
+        </div>
       </Card>
 
       {/* Submit */}
@@ -237,32 +291,24 @@ export function ReviewForm({ onNavigate }: ReviewFormProps) {
         </Card>
       ) : (
         <Card className="mt-4">
-          <Checkbox
-            label="This accurately reflects our program offering."
-            name="confirm"
-            checked={confirmed}
-            onChange={(e) => setConfirmed(e.target.checked)}
-            disabled={!allComplete}
-          />
           {!allComplete && (
-            <p className="text-xs text-amber-600 mt-2">Complete all sections to submit.</p>
+            <p className="text-xs text-amber-600 mb-2">Complete all sections to submit.</p>
           )}
-          <p className="text-xs text-muted mt-3">
+          {!allReviewed && allComplete && (
+            <p className="text-xs text-amber-600 mb-2">Confirm you&apos;ve reviewed each section above to submit.</p>
+          )}
+          <p className="text-xs text-muted mt-1">
             Once submitted, our teams will use this information to complete your setup and kick off any scoped projects. This form will be locked after submission — any changes will need to go through your account manager.
           </p>
           <div className="mt-4">
-            <Button variant="cta" onClick={handleSubmit} disabled={!confirmed || !allComplete} loading={submitting}>
+            <Button variant="cta" onClick={handleSubmit} disabled={!allComplete || !allReviewed} loading={submitting}>
               Submit Onboarding Form
             </Button>
           </div>
         </Card>
       )}
 
-      <div className="pb-4">
-        <Button variant="secondary" type="button" onClick={() => onNavigate?.(9)}>
-          &larr; Previous
-        </Button>
-      </div>
+      <SectionNavButtons currentSection={10} onNavigate={onNavigate} />
     </div>
   );
 }

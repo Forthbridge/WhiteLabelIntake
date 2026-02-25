@@ -8,9 +8,17 @@ interface SellerSectionNavProps {
   activeSection: SellerSectionId;
   onSectionChange: (id: string) => void;
   completionStatuses: Record<SellerSectionId, CompletionStatus>;
+  dirtySections?: Record<string | number, boolean>;
 }
 
-function StatusDot({ status }: { status: CompletionStatus }) {
+function StatusDot({ status, dirty }: { status: CompletionStatus; dirty?: boolean }) {
+  if (dirty) {
+    return (
+      <div className="h-5 w-5 flex-shrink-0 flex items-center justify-center">
+        <div className="h-3 w-3 rounded-full bg-amber-400" />
+      </div>
+    );
+  }
   if (status === "complete") {
     return (
       <svg className="h-5 w-5 text-success flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
@@ -36,6 +44,7 @@ export function SellerSectionNav({
   activeSection,
   onSectionChange,
   completionStatuses,
+  dirtySections,
 }: SellerSectionNavProps) {
   return (
     <nav className="w-72 flex-shrink-0 bg-white border-r border-border p-6 overflow-y-auto flex flex-col">
@@ -50,6 +59,7 @@ export function SellerSectionNav({
         {SELLER_SECTIONS.map((section) => {
           const isActive = activeSection === section.id;
           const status = completionStatuses[section.id] || "not_started";
+          const dirty = !!dirtySections?.[section.id];
 
           return (
             <button
@@ -64,7 +74,7 @@ export function SellerSectionNav({
                   : "text-foreground hover:bg-gray-light"}
               `}
             >
-              <StatusDot status={status} />
+              <StatusDot status={status} dirty={dirty} />
               <span className="truncate">{section.title}</span>
             </button>
           );

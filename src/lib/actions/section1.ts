@@ -19,7 +19,6 @@ export async function loadSection1(): Promise<Section1Data> {
     ? await prisma.program.findUnique({
         where: { id: ctx.programId },
         select: {
-          programName: true,
           adminContactName: true,
           adminContactEmail: true,
           executiveSponsorName: true,
@@ -33,7 +32,6 @@ export async function loadSection1(): Promise<Section1Data> {
 
   return {
     legalName: affiliate?.legalName ?? "",
-    programName: program?.programName ?? "",
     adminContactName: program?.adminContactName ?? "",
     adminContactEmail: program?.adminContactEmail ?? "",
     executiveSponsorName: program?.executiveSponsorName ?? "",
@@ -44,8 +42,8 @@ export async function loadSection1(): Promise<Section1Data> {
   };
 }
 
-export async function saveSection1(data: Section1Data): Promise<Record<number, CompletionStatus>> {
-  const ctx = await getSessionContext();
+export async function saveSection1(data: Section1Data, selectedProgramId?: string): Promise<Record<number, CompletionStatus>> {
+  const ctx = await getSessionContext(selectedProgramId);
   await assertNotSubmitted(ctx.affiliateId);
   const parsed = section1Schema.parse(data);
 
@@ -60,7 +58,6 @@ export async function saveSection1(data: Section1Data): Promise<Record<number, C
     await prisma.program.update({
       where: { id: ctx.programId },
       data: {
-        programName: parsed.programName || null,
         adminContactName: parsed.adminContactName || null,
         adminContactEmail: parsed.adminContactEmail || null,
         executiveSponsorName: parsed.executiveSponsorName || null,
@@ -74,5 +71,5 @@ export async function saveSection1(data: Section1Data): Promise<Record<number, C
 
   await writeSectionSnapshot(1, parsed as unknown as Prisma.InputJsonValue, ctx.userId, ctx.affiliateId, ctx.programId);
 
-  return getCompletionStatuses(ctx.affiliateId);
+  return getCompletionStatuses(ctx.affiliateId, ctx.programId ?? undefined);
 }

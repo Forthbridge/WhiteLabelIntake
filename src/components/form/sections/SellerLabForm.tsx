@@ -5,10 +5,11 @@ import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { RadioGroup } from "@/components/ui/RadioGroup";
-import { Button } from "@/components/ui/Button";
 import { useSaveOnNext } from "@/lib/hooks/useSaveOnNext";
 import { saveSellerLab } from "@/lib/actions/seller-lab";
 import type { SellerLabData } from "@/lib/validations/seller-lab";
+import { SellerSectionNavButtons } from "../SellerSectionNavButtons";
+import { useReportDirty, useSellerCacheUpdater } from "../OnboardingClient";
 
 const LAB_OPTIONS = [
   { value: "quest", label: "Quest Diagnostics" },
@@ -26,13 +27,17 @@ interface Props {
 export function SellerLabForm({ initialData, onNavigate, onStatusUpdate, disabled }: Props) {
   const [data, setData] = useState<SellerLabData>(initialData);
 
+  const updateSellerCache = useSellerCacheUpdater();
+
   const onSave = useCallback(async (d: SellerLabData) => {
     const statuses = await saveSellerLab(d);
+    updateSellerCache("lab", d);
     onStatusUpdate?.(statuses);
     return {};
-  }, [onStatusUpdate]);
+  }, [onStatusUpdate, updateSellerCache]);
 
   const { save, isDirty } = useSaveOnNext({ data, onSave });
+  useReportDirty("S-5", isDirty);
 
   function update(field: keyof SellerLabData, value: unknown) {
     setData((prev) => ({ ...prev, [field]: value }));
@@ -41,7 +46,8 @@ export function SellerLabForm({ initialData, onNavigate, onStatusUpdate, disable
   return (
     <div className="flex flex-col gap-6">
       <Card>
-        <h3 className="text-lg font-heading font-semibold mb-4">Lab Network</h3>
+        <h3 className="text-lg font-heading font-semibold mb-1">Preferred Lab Partner</h3>
+        <p className="text-xs text-muted mb-5">Select your lab network or choose &ldquo;Other&rdquo; if you use a different provider.</p>
         <RadioGroup
           name="sellerNetworkType"
           label="Which lab network does your organization use?"
@@ -102,23 +108,13 @@ export function SellerLabForm({ initialData, onNavigate, onStatusUpdate, disable
         </div>
       </Card>
 
-      {!disabled && (
-        <div className="flex justify-between pt-4">
-          <Button variant="secondary" type="button" onClick={() => onNavigate?.("S-3")}>
-            &larr; Previous
-          </Button>
-          <Button
-            variant="cta"
-            type="button"
-            onClick={async () => {
-              await save();
-              onNavigate?.("S-6");
-            }}
-          >
-            {isDirty ? "Save & Next \u2192" : "Next \u2192"}
-          </Button>
-        </div>
-      )}
+      <SellerSectionNavButtons
+        currentSection="S-5"
+        onNavigate={onNavigate}
+        onSave={save}
+        isDirty={isDirty}
+        disabled={disabled}
+      />
     </div>
   );
 }

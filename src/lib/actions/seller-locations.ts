@@ -194,6 +194,9 @@ export async function saveSellerLocations(data: SellerLocationsData): Promise<Sa
     ctx.affiliateId
   );
 
+  // Geocode any locations missing lat/lng (e.g. CSV imports, manual entry without autocomplete)
+  await geocodeSellerLocations(ctx.affiliateId);
+
   const statuses = await computeSellerStatuses(ctx.affiliateId);
   return { statuses, locationIds };
 }

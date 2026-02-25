@@ -4,7 +4,7 @@ import { loadAllOnboardingData } from "@/lib/actions/onboarding";
 import { OnboardingClient } from "@/components/form/OnboardingClient";
 
 export default async function OnboardingPage() {
-  const { sections, statuses, formStatus, phases, roles, sellerData } = await loadAllOnboardingData();
+  const { sections, statuses, formStatus, phases, roles, networkLocationCount, sectionReviews, sellerData, programs, allProgramData } = await loadAllOnboardingData();
 
   return (
     <OnboardingClient
@@ -13,7 +13,11 @@ export default async function OnboardingPage() {
       formStatus={formStatus}
       phases={phases}
       roles={roles}
+      networkLocationCount={networkLocationCount}
+      sectionReviews={sectionReviews}
       sellerData={sellerData}
+      programs={programs}
+      allProgramData={allProgramData}
     />
   );
 }

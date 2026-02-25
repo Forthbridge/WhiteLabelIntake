@@ -38,6 +38,8 @@ export default async function AdminEditPage({
           phases={data.phases}
           formStatus={data.formStatus}
           roles={data.roles}
+          networkLocationCount={data.networkLocationCount}
+          sectionReviews={data.sectionReviews}
           sellerData={data.sellerData}
         />
       </AdminFormProvider>

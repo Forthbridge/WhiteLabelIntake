@@ -9,13 +9,9 @@ import { getSectionMeta, getVisibleSections, getSellerSectionMeta, SELLER_SECTIO
 import type { SectionId, CompletionStatus, FlowType, SellerSectionId } from "@/types";
 import { CompletionProvider, useCompletion } from "@/lib/contexts/CompletionContext";
 import { Section1Form } from "./sections/Section1Form";
-import { Section2Form } from "./sections/Section2Form";
-import { Section3Form } from "./sections/Section3Form";
+import { PlanDefinitionForm } from "./sections/PlanDefinitionForm";
 import { Section4Form } from "./sections/Section4Form";
-import { Section9Form } from "./sections/Section9Form";
 import { ReviewForm } from "./sections/ReviewForm";
-import { Section11Form } from "./sections/Section11Form";
-import { Section12Form } from "./sections/Section12Form";
 import { NetworkBuilderForm } from "./sections/NetworkBuilderForm";
 import { SellerOrgInfoForm } from "./sections/SellerOrgInfoForm";
 import { SellerServicesForm } from "./sections/SellerServicesForm";
@@ -24,6 +20,7 @@ import { SellerBillingForm } from "./sections/SellerBillingForm";
 import { SellerReviewForm } from "./sections/SellerReviewForm";
 import { SellerLocationsForm } from "./sections/SellerLocationsForm";
 import { SellerProvidersForm } from "./sections/SellerProvidersForm";
+import { SellerPricingForm } from "./sections/SellerPricingForm";
 
 import type { Section1Data } from "@/lib/validations/section1";
 import type { Section2Data } from "@/lib/validations/section2";
@@ -35,9 +32,11 @@ import type { SellerOrgData } from "@/lib/validations/seller-org";
 import type { SellerServicesData } from "@/lib/validations/seller-services";
 import type { SellerLabData } from "@/lib/validations/seller-lab";
 import type { SellerBillingData } from "@/lib/validations/seller-billing";
+import type { SellerPricingData } from "@/lib/validations/seller-pricing";
 import type { LocationServiceState } from "@/lib/actions/location-services";
 import type { SellerLocationsData, SellerLocationData } from "@/lib/actions/seller-locations";
 import type { SellerProvidersData, SellerProviderData } from "@/lib/actions/seller-providers";
+import type { SectionReviewRow } from "@/lib/actions/section-review";
 
 export interface AllSectionData {
   1: Section1Data;
@@ -64,23 +63,17 @@ interface PhaseInfo {
 const SectionCacheCtx = createContext<(section: number, data: unknown) => void>(() => {});
 
 /* ── Dirty (unsaved) tracking context ──
-   Lets section forms report whether they have unsaved changes. */
-const DirtyCtx = createContext<(section: number, dirty: boolean) => void>(() => {});
+   Lets section forms report whether they have unsaved changes.
+   Key is string | number so both affiliate (1,2,3…) and seller ("S-1","S-2"…) flows share one context. */
+const DirtyCtx = createContext<(section: string | number, dirty: boolean) => void>(() => {});
 
-/** Call in every section form that uses useSaveOnNext to report dirty state to the nav. */
-export function useReportDirty(section: number, isDirty: boolean) {
+/** Call in every section form to report dirty state to the nav.
+ *  Always syncs current state — handles mount, transitions, and remount after stale dirty. */
+export function useReportDirty(section: string | number, isDirty: boolean) {
   const report = useContext(DirtyCtx);
-  const prevDirty = useRef(false);
-
   useEffect(() => {
-    if (isDirty && !prevDirty.current) {
-      report(section, true);       // became dirty
-    } else if (!isDirty && prevDirty.current) {
-      report(section, false);      // save happened → clean
-    }
-    prevDirty.current = isDirty;
+    report(section, isDirty);
   }, [section, isDirty, report]);
-  // No unmount cleanup — dirty persists across navigation
 }
 
 /* ── Saving overlay context ──
@@ -100,9 +93,21 @@ export function useSyncSectionCache(section: number, data: unknown) {
   useEffect(() => () => update(section, ref.current), [section, update]);
 }
 
+/* ── Seller data cache ──
+   Keyed by seller section ID. Updated on SAVE only (not unmount)
+   so unsaved edits don't corrupt the cache. */
+const SellerCacheCtx = createContext<(key: string, data: unknown) => void>(() => {});
+
+/** Returns updater to sync seller data to cache. Call from save handlers only. */
+export function useSellerCacheUpdater() {
+  return useContext(SellerCacheCtx);
+}
+
 export interface SellerFlowData {
   orgInfo: SellerOrgData;
   services: SellerServicesData;
+  orgSubServices: Section11Data;
+  pricing: SellerPricingData;
   lab: SellerLabData;
   billing: SellerBillingData;
   locationServices: Record<string, LocationServiceState>;
@@ -115,6 +120,11 @@ export interface SellerFlowData {
   flowStatus: string;
 }
 
+export interface ProgramInfo {
+  id: string;
+  programName: string | null;
+}
+
 interface OnboardingClientProps {
   sectionData: AllSectionData;
   initialStatuses: Record<number, CompletionStatus>;
@@ -122,10 +132,14 @@ interface OnboardingClientProps {
   formStatus?: string;
   phases?: PhaseInfo[];
   roles?: RoleFlags;
+  networkLocationCount?: number;
+  sectionReviews?: SectionReviewRow[];
   sellerData?: SellerFlowData;
+  programs?: ProgramInfo[];
+  allProgramData?: Record<string, AllSectionData>;
 }
 
-export function OnboardingClient({ sectionData, initialStatuses, affiliateId, formStatus, phases, roles, sellerData }: OnboardingClientProps) {
+export function OnboardingClient({ sectionData, initialStatuses, affiliateId, formStatus, phases, roles, networkLocationCount, sectionReviews, sellerData, programs, allProgramData }: OnboardingClientProps) {
   return (
     <CompletionProvider
       initialStatuses={initialStatuses}
@@ -136,20 +150,42 @@ export function OnboardingClient({ sectionData, initialStatuses, affiliateId, fo
       <OnboardingClientInner
         sectionData={sectionData}
         roles={roles ?? { isAffiliate: true, isSeller: false }}
+        networkLocationCount={networkLocationCount ?? 0}
+        sectionReviews={sectionReviews ?? []}
         sellerData={sellerData}
+        programs={programs ?? []}
+        allProgramData={allProgramData ?? {}}
       />
     </CompletionProvider>
   );
 }
 
+/* ── Selected Program context ──
+   Exposes the selected programId to child components (forms, nav buttons)
+   so they can pass it to server actions. */
+const SelectedProgramCtx = createContext<string | null>(null);
+
+/** Returns the currently selected programId from the plan selector. */
+export function useSelectedProgram() {
+  return useContext(SelectedProgramCtx);
+}
+
 function OnboardingClientInner({
   sectionData,
   roles,
+  networkLocationCount,
+  sectionReviews,
   sellerData,
+  programs,
+  allProgramData,
 }: {
   sectionData: AllSectionData;
   roles: RoleFlags;
+  networkLocationCount: number;
+  sectionReviews: SectionReviewRow[];
   sellerData?: SellerFlowData;
+  programs: ProgramInfo[];
+  allProgramData: Record<string, AllSectionData>;
 }) {
   const isDualRole = roles.isAffiliate && roles.isSeller;
   const defaultFlow: FlowType = roles.isAffiliate ? "AFFILIATE" : "SELLER";
@@ -157,11 +193,14 @@ function OnboardingClientInner({
   const [activeFlow, setActiveFlow] = useState<FlowType>(defaultFlow);
   const [activeSection, setActiveSection] = useState(1);
   const [activeSellerSection, setActiveSellerSection] = useState<SellerSectionId>("S-1");
+  const [programList, setProgramList] = useState<ProgramInfo[]>(programs);
+  const [selectedProgramId, setSelectedProgramId] = useState<string | null>(programs[0]?.id ?? null);
   const [cache, setCache] = useState<AllSectionData>(sectionData);
+  const [programDataCache, setProgramDataCache] = useState<Record<string, AllSectionData>>(allProgramData);
   const [isSaving, setIsSaving] = useState(false);
-  const [dirtySections, setDirtySections] = useState<Record<number, boolean>>({});
+  const [dirtySections, setDirtySections] = useState<Record<string | number, boolean>>({});
   const [sellerStatuses, setSellerStatuses] = useState<Record<SellerSectionId, CompletionStatus>>(
-    sellerData?.statuses ?? { "S-1": "not_started", "S-2": "not_started", "S-3": "not_started", "S-4": "not_started", "S-5": "not_started", "S-6": "not_started", "S-R": "not_started" }
+    sellerData?.statuses ?? { "S-1": "not_started", "S-2": "not_started", "S-3": "not_started", "S-4": "not_started", "S-5": "not_started", "S-6": "not_started", "S-7": "not_started", "S-R": "not_started" }
   );
   const [sellerServices, setSellerServices] = useState<SellerServicesData>(
     sellerData?.services ?? { services: [] }
@@ -169,13 +208,17 @@ function OnboardingClientInner({
   const [sellerFlowStatus, setSellerFlowStatus] = useState(
     sellerData?.flowStatus ?? "DRAFT"
   );
+  const [sellerCache, setSellerCache] = useState<SellerFlowData | undefined>(sellerData);
+  const updateSellerCache = useCallback((key: string, data: unknown) => {
+    setSellerCache((prev) => prev ? { ...prev, [key]: data } : prev);
+  }, []);
 
   const handleSellerStatusUpdate = useCallback((newStatuses: Record<string, string>) => {
     setSellerStatuses(newStatuses as Record<SellerSectionId, CompletionStatus>);
   }, []);
   const { statuses, isLocked, unmetFor, unlockedPhases, phaseStatuses } = useCompletion();
 
-  const reportDirty = useCallback((section: number, dirty: boolean) => {
+  const reportDirty = useCallback((section: string | number, dirty: boolean) => {
     setDirtySections(prev => {
       if (prev[section] === dirty) return prev;
       return { ...prev, [section]: dirty };
@@ -201,6 +244,28 @@ function OnboardingClientInner({
     window.scrollTo({ top: 0, behavior: "instant" });
   }, []);
 
+  const handlePlanChange = useCallback((programId: string) => {
+    // Save current plan data to cache before switching
+    if (selectedProgramId) {
+      setProgramDataCache((prev) => ({ ...prev, [selectedProgramId]: cache }));
+    }
+    setSelectedProgramId(programId);
+    // Load cached data for new plan
+    const planData = programDataCache[programId];
+    if (planData) {
+      setCache(planData);
+    }
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }, [selectedProgramId, cache, programDataCache]);
+
+  const handleProgramListUpdate = useCallback((newPrograms: ProgramInfo[]) => {
+    setProgramList(newPrograms);
+  }, []);
+
+  const handleProgramDataUpdate = useCallback((programId: string, data: AllSectionData) => {
+    setProgramDataCache((prev) => ({ ...prev, [programId]: data }));
+  }, []);
+
   // ─── Affiliate flow rendering ─────────────────────────────────
 
   const meta = getSectionMeta(activeSection);
@@ -209,25 +274,30 @@ function OnboardingClientInner({
   const visibleSections = getVisibleSections(unlockedPhases);
 
   function renderAffiliateSection() {
+    // Key by selectedProgramId forces remount when switching plans,
+    // ensuring useState re-initializes with the new plan's data.
+    const planKey = selectedProgramId ?? "default";
     switch (activeSection) {
       case 1:
-        return <Section1Form initialData={cache[1]} onNavigate={handleNavigate} disabled={locked} />;
+        return <Section1Form key={planKey} initialData={cache[1]} onNavigate={handleNavigate} disabled={locked} />;
       case 2:
-        return <Section2Form initialData={cache[2]} onNavigate={handleNavigate} disabled={locked} />;
-      case 3:
-        return <Section3Form initialData={cache[3]} onNavigate={handleNavigate} disabled={locked} />;
+        return (
+          <PlanDefinitionForm
+            key={planKey}
+            initialSection2Data={cache[2]}
+            initialSection3Data={cache[3]}
+            initialSection9Data={cache[9]}
+            initialSubServiceData={cache[11]}
+            onNavigate={handleNavigate}
+            disabled={locked}
+          />
+        );
       case 4:
-        return <Section4Form initialData={cache[4]} onNavigate={handleNavigate} disabled={locked} />;
+        return <Section4Form key={planKey} initialData={cache[4]} onNavigate={handleNavigate} disabled={locked} />;
       case 5:
-        return <NetworkBuilderForm onNavigate={handleNavigate} disabled={locked} />;
-      case 9:
-        return <Section9Form initialData={cache[9]} onNavigate={handleNavigate} disabled={locked} />;
+        return <NetworkBuilderForm key={planKey} onNavigate={handleNavigate} disabled={locked} programId={selectedProgramId} />;
       case 10:
-        return <ReviewForm onNavigate={handleNavigate} />;
-      case 11:
-        return <Section11Form initialData={cache[11]} onNavigate={handleNavigate} disabled={locked} unlockedPhases={unlockedPhases} />;
-      case 12:
-        return <Section12Form onNavigate={handleNavigate} />;
+        return <ReviewForm data={cache} networkLocationCount={networkLocationCount} initialSectionReviews={sectionReviews} onNavigate={handleNavigate} />;
       default:
         return null;
     }
@@ -249,7 +319,7 @@ function OnboardingClientInner({
       case "S-1":
         return (
           <SellerOrgInfoForm
-            initialData={sellerData?.orgInfo ?? defaultOrgInfo}
+            initialData={sellerCache?.orgInfo ?? defaultOrgInfo}
             onNavigate={handleSellerNavigate}
             disabled={sellerLocked}
           />
@@ -258,13 +328,14 @@ function OnboardingClientInner({
         return (
           <SellerLocationsForm
             initialData={{
-              defaultSchedulingSystem: sellerData?.defaultSchedulingSystem ?? null,
-              defaultSchedulingOtherName: sellerData?.defaultSchedulingOtherName ?? null,
-              defaultSchedulingAcknowledged: sellerData?.defaultSchedulingAcknowledged ?? false,
-              locations: sellerData?.locations ?? [],
+              defaultSchedulingSystem: sellerCache?.defaultSchedulingSystem ?? null,
+              defaultSchedulingOtherName: sellerCache?.defaultSchedulingOtherName ?? null,
+              defaultSchedulingAcknowledged: sellerCache?.defaultSchedulingAcknowledged ?? false,
+              locations: sellerCache?.locations ?? [],
             }}
             sellerServiceOfferings={sellerServices.services}
-            locationServices={sellerData?.locationServices}
+            locationServices={sellerCache?.locationServices}
+            orgSubServices={sellerCache?.orgSubServices}
             onNavigate={handleSellerNavigate}
             onStatusUpdate={handleSellerStatusUpdate}
             disabled={sellerLocked}
@@ -273,7 +344,7 @@ function OnboardingClientInner({
       case "S-3":
         return (
           <SellerProvidersForm
-            initialData={{ providers: sellerData?.providers ?? [] }}
+            initialData={{ providers: sellerCache?.providers ?? [] }}
             onNavigate={handleSellerNavigate}
             onStatusUpdate={handleSellerStatusUpdate}
             disabled={sellerLocked}
@@ -282,17 +353,32 @@ function OnboardingClientInner({
       case "S-4":
         return (
           <SellerServicesForm
-            initialData={sellerData?.services ?? defaultServices}
+            initialData={sellerCache?.services ?? defaultServices}
+            initialSubServiceData={sellerCache?.orgSubServices}
             onNavigate={handleSellerNavigate}
             onStatusUpdate={handleSellerStatusUpdate}
             onServicesChange={setSellerServices}
             disabled={sellerLocked}
           />
         );
+      case "S-7": {
+        const defaultPricing: SellerPricingData = { visitPrices: [], subServicePrices: [] };
+        return (
+          <SellerPricingForm
+            initialData={sellerCache?.pricing ?? defaultPricing}
+            serviceSelections={sellerServices.services}
+            orgSubServices={sellerCache?.orgSubServices}
+            sellerLocations={(sellerCache?.locations ?? []).filter((l) => l.id).map((l) => ({ id: l.id!, locationName: l.locationName ?? "" }))}
+            onNavigate={handleSellerNavigate}
+            onStatusUpdate={handleSellerStatusUpdate}
+            disabled={sellerLocked}
+          />
+        );
+      }
       case "S-5":
         return (
           <SellerLabForm
-            initialData={sellerData?.lab ?? defaultLab}
+            initialData={sellerCache?.lab ?? defaultLab}
             onNavigate={handleSellerNavigate}
             onStatusUpdate={handleSellerStatusUpdate}
             disabled={sellerLocked}
@@ -301,16 +387,16 @@ function OnboardingClientInner({
       case "S-6":
         return (
           <SellerBillingForm
-            initialData={sellerData?.billing ?? defaultBilling}
+            initialData={sellerCache?.billing ?? defaultBilling}
             onNavigate={handleSellerNavigate}
             onStatusUpdate={handleSellerStatusUpdate}
             disabled={sellerLocked}
           />
         );
       case "S-R":
-        return sellerData ? (
+        return sellerCache ? (
           <SellerReviewForm
-            sellerData={sellerData}
+            sellerData={sellerCache}
             statuses={sellerStatuses}
             onNavigate={handleSellerNavigate}
             onSubmitted={() => setSellerFlowStatus("SUBMITTED")}
@@ -321,13 +407,15 @@ function OnboardingClientInner({
     }
   }
 
-  // Determine phase label for header
-  const phaseLabel = meta?.minPhase === 2 ? "Phase 2" : meta?.phase === "program" ? "Program" : meta?.phase === "operations" ? "Operations" : "Review";
+  // Position of the active section within the visible (non-hidden) list
+  const activeSectionIndex = visibleSections.findIndex((s) => s.id === activeSection) + 1;
 
   return (
+    <SelectedProgramCtx.Provider value={selectedProgramId}>
     <SavingCtx.Provider value={setIsSaving}>
     <DirtyCtx.Provider value={reportDirty}>
     <SectionCacheCtx.Provider value={updateCache}>
+    <SellerCacheCtx.Provider value={updateSellerCache}>
     <div className="flex flex-col h-screen bg-off-white">
       <LoadingOverlay visible={isSaving} />
 
@@ -372,13 +460,18 @@ function OnboardingClientInner({
               unlockedPhases={unlockedPhases}
               phaseStatuses={phaseStatuses}
               dirtySections={dirtySections}
+              programs={programList}
+              selectedProgramId={selectedProgramId}
+              onPlanChange={handlePlanChange}
+              onProgramListUpdate={handleProgramListUpdate}
+              onProgramDataUpdate={handleProgramDataUpdate}
             />
             <main className="flex-1 overflow-y-auto">
               <div className="max-w-3xl mx-auto px-6 py-10">
                 {meta && (
                   <div className="mb-8">
                     <p className="text-xs font-semibold uppercase tracking-wider text-muted mb-1">
-                      Section {activeSection} of {visibleSections.length} &middot; {phaseLabel}
+                      Step {activeSectionIndex} of {visibleSections.length}
                     </p>
                     <h1 className="text-2xl font-heading font-semibold text-brand-black">
                       {meta.title}
@@ -405,6 +498,7 @@ function OnboardingClientInner({
               activeSection={activeSellerSection}
               onSectionChange={handleSellerNavigate}
               completionStatuses={sellerStatuses}
+              dirtySections={dirtySections}
             />
             <main className="flex-1 overflow-y-auto">
               <div className="max-w-3xl mx-auto px-6 py-10">
@@ -439,8 +533,10 @@ function OnboardingClientInner({
         )}
       </div>
     </div>
+    </SellerCacheCtx.Provider>
     </SectionCacheCtx.Provider>
     </DirtyCtx.Provider>
     </SavingCtx.Provider>
+    </SelectedProgramCtx.Provider>
   );
 }

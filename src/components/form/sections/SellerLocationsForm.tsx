@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useRef } from "react";
 import dynamic from "next/dynamic";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/Card";
@@ -13,14 +13,18 @@ import type { SellerLocationsData, SellerLocationData } from "@/lib/actions/sell
 import { defaultWeeklySchedule } from "@/lib/validations/section5";
 import type { DaySchedule } from "@/lib/validations/section5";
 import { SERVICE_TYPES } from "@/lib/validations/section3";
+import { SELLER_SERVICE_TYPES } from "@/lib/validations/seller-services";
 import { SUB_SERVICE_TYPES } from "@/lib/validations/section11";
-import { saveLocationServices } from "@/lib/actions/location-services";
+import { saveLocationServices, initLocationFromOrgDefaults, resetLocationToDefaults } from "@/lib/actions/location-services";
 import type { LocationServiceState } from "@/lib/actions/location-services";
 import { SubServiceModal } from "@/components/ui/SubServiceModal";
 import { CSVUploadButton } from "@/components/ui/CSVUploadButton";
 import { LOCATION_CSV_COLUMNS, locationCSVRowSchema } from "@/lib/csv/locationColumns";
 import type { LocationCSVRow } from "@/lib/csv/locationColumns";
+import type { Section11Data } from "@/lib/validations/section11";
 import type { CompletionStatus, SellerSectionId } from "@/types";
+import { SellerSectionNavButtons } from "../SellerSectionNavButtons";
+import { useReportDirty, useSellerCacheUpdater } from "../OnboardingClient";
 
 const US_STATES = [
   "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA",
@@ -89,17 +93,20 @@ interface SellerLocationsFormProps {
   initialData: SellerLocationsData;
   sellerServiceOfferings: Array<{ serviceType: string; selected: boolean }>;
   locationServices?: Record<string, LocationServiceState>;
+  orgSubServices?: Section11Data;
   onNavigate: (sectionId: string) => void;
   onStatusUpdate: (statuses: Record<string, string>) => void;
   disabled?: boolean;
 }
 
-export function SellerLocationsForm({ initialData, sellerServiceOfferings, locationServices: initialLocationServices, onNavigate, onStatusUpdate, disabled }: SellerLocationsFormProps) {
+export function SellerLocationsForm({ initialData, sellerServiceOfferings, locationServices: initialLocationServices, orgSubServices, onNavigate, onStatusUpdate, disabled }: SellerLocationsFormProps) {
   const [locServices, setLocServices] = useState<Record<string, LocationServiceState>>(initialLocationServices ?? {});
   const [modalTarget, setModalTarget] = useState<{ locId: string; serviceType: string } | null>(null);
+  const [customizingLoc, setCustomizingLoc] = useState<string | null>(null);
+  const [resettingLoc, setResettingLoc] = useState<string | null>(null);
   const [openIndex, setOpenIndex] = useState<number>(0);
   const [saving, setSaving] = useState(false);
-  const [data, setData] = useState<SellerLocationsData>(() => {
+  const [_data, _setData] = useState<SellerLocationsData>(() => {
     if (initialData.locations.length === 0) {
       return { ...initialData, locations: [emptyLocation()] };
     }
@@ -112,12 +119,29 @@ export function SellerLocationsForm({ initialData, sellerServiceOfferings, locat
     };
   });
 
+  // Dirty tracking — simple flag, set on any edit, cleared on save
+  const [isDirty, setIsDirty] = useState(false);
+  useReportDirty("S-2", isDirty);
+
+  // Wrap setData so every mutation automatically marks dirty
+  const data = _data;
+  const setData: typeof _setData = useCallback((action) => {
+    setIsDirty(true);
+    _setData(action);
+  }, []);
+
+  const updateSellerCache = useSellerCacheUpdater();
+
+  // Ref so handleSave always reads latest locServices without re-creating
+  const locServicesRef = useRef(locServices);
+  locServicesRef.current = locServices;
+
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
       const result = await saveSellerLocations(data);
-      // Assign server-generated IDs back
-      setData((prev) => {
+      // Assign server-generated IDs back (use raw setter — this isn't a user edit)
+      _setData((prev) => {
         const updated = prev.locations.map((l, i) =>
           l.id !== result.locationIds[i] ? { ...l, id: result.locationIds[i] } : l
         );
@@ -125,7 +149,25 @@ export function SellerLocationsForm({ initialData, sellerServiceOfferings, locat
           ? { ...prev, locations: updated }
           : prev;
       });
+
+      // Batch-save all location service overrides
+      const currentLocServices = locServicesRef.current;
+      const savePromises = Object.entries(currentLocServices)
+        .filter(([locId]) => locId) // skip empty keys
+        .map(([locId, state]) =>
+          saveLocationServices({ locationId: locId, overrides: state.overrides, subServices: state.subServices })
+        );
+      await Promise.all(savePromises);
+
+      // Sync saved state to parent cache so navigating back shows correct data
+      updateSellerCache("locations", data.locations.map((l, i) => ({ ...l, id: result.locationIds[i] ?? l.id })));
+      updateSellerCache("defaultSchedulingSystem", data.defaultSchedulingSystem);
+      updateSellerCache("defaultSchedulingOtherName", data.defaultSchedulingOtherName);
+      updateSellerCache("defaultSchedulingAcknowledged", data.defaultSchedulingAcknowledged);
+      updateSellerCache("locationServices", currentLocServices);
+
       onStatusUpdate(result.statuses);
+      setIsDirty(false);
       toast.success("Locations saved");
     } catch (err) {
       console.error(err);
@@ -262,20 +304,15 @@ export function SellerLocationsForm({ initialData, sellerServiceOfferings, locat
   }
 
   function toggleLocServiceOverride(locId: string, serviceType: string, currentlyAvailable: boolean) {
+    setIsDirty(true);
     setLocServices((prev) => {
-      const state = prev[locId] ?? { overrides: [], subServices: [] };
+      const state = prev[locId] ?? { overrides: [], subServices: [], hasOverrides: true };
       const existing = state.overrides.find((o) => o.serviceType === serviceType);
       const newOverrides = existing
         ? state.overrides.map((o) => o.serviceType === serviceType ? { ...o, available: !currentlyAvailable } : o)
         : [...state.overrides, { serviceType, available: !currentlyAvailable }];
       return { ...prev, [locId]: { ...state, overrides: newOverrides } };
     });
-    const state = locServices[locId] ?? { overrides: [], subServices: [] };
-    const existing = state.overrides.find((o) => o.serviceType === serviceType);
-    const newOverrides = existing
-      ? state.overrides.map((o) => o.serviceType === serviceType ? { ...o, available: !currentlyAvailable } : o)
-      : [...state.overrides, { serviceType, available: !currentlyAvailable }];
-    saveLocationServices({ locationId: locId, overrides: newOverrides, subServices: state.subServices }).catch(() => {});
   }
 
   function getSubServiceAvailable(locId: string, serviceType: string, subType: string): boolean {
@@ -286,63 +323,183 @@ export function SellerLocationsForm({ initialData, sellerServiceOfferings, locat
   }
 
   function toggleSubService(locId: string, serviceType: string, subType: string) {
+    setIsDirty(true);
     setLocServices((prev) => {
-      const state = prev[locId] ?? { overrides: [], subServices: [] };
+      const state = prev[locId] ?? { overrides: [], subServices: [], hasOverrides: true };
       const existing = state.subServices.find((s) => s.serviceType === serviceType && s.subType === subType);
       const newSubs = existing
         ? state.subServices.map((s) => s.serviceType === serviceType && s.subType === subType ? { ...s, available: !s.available } : s)
         : [...state.subServices, { serviceType, subType, available: false }];
       return { ...prev, [locId]: { ...state, subServices: newSubs } };
     });
-    const state = locServices[locId] ?? { overrides: [], subServices: [] };
-    const existing = state.subServices.find((s) => s.serviceType === serviceType && s.subType === subType);
-    const newSubs = existing
-      ? state.subServices.map((s) => s.serviceType === serviceType && s.subType === subType ? { ...s, available: !s.available } : s)
-      : [...state.subServices, { serviceType, subType, available: false }];
-    saveLocationServices({ locationId: locId, overrides: state.overrides, subServices: newSubs }).catch(() => {});
   }
 
   function selectAllSubServices(locId: string, serviceType: string) {
+    setIsDirty(true);
     const subItems = SUB_SERVICE_TYPES[serviceType] ?? [];
     setLocServices((prev) => {
-      const state = prev[locId] ?? { overrides: [], subServices: [] };
+      const state = prev[locId] ?? { overrides: [], subServices: [], hasOverrides: true };
       const otherSubs = state.subServices.filter((s) => s.serviceType !== serviceType);
       const newSubs = [...otherSubs, ...subItems.map((sub) => ({ serviceType, subType: sub.value, available: true }))];
       return { ...prev, [locId]: { ...state, subServices: newSubs } };
     });
-    const state = locServices[locId] ?? { overrides: [], subServices: [] };
-    const otherSubs = state.subServices.filter((s) => s.serviceType !== serviceType);
-    const newSubs = [...otherSubs, ...subItems.map((sub) => ({ serviceType, subType: sub.value, available: true }))];
-    saveLocationServices({ locationId: locId, overrides: state.overrides, subServices: newSubs }).catch(() => {});
   }
 
   function deselectAllSubServices(locId: string, serviceType: string) {
+    setIsDirty(true);
     const subItems = SUB_SERVICE_TYPES[serviceType] ?? [];
     setLocServices((prev) => {
-      const state = prev[locId] ?? { overrides: [], subServices: [] };
+      const state = prev[locId] ?? { overrides: [], subServices: [], hasOverrides: true };
       const otherSubs = state.subServices.filter((s) => s.serviceType !== serviceType);
       const newSubs = [...otherSubs, ...subItems.map((sub) => ({ serviceType, subType: sub.value, available: false }))];
       return { ...prev, [locId]: { ...state, subServices: newSubs } };
     });
-    const state = locServices[locId] ?? { overrides: [], subServices: [] };
-    const otherSubs = state.subServices.filter((s) => s.serviceType !== serviceType);
-    const newSubs = [...otherSubs, ...subItems.map((sub) => ({ serviceType, subType: sub.value, available: false }))];
-    saveLocationServices({ locationId: locId, overrides: state.overrides, subServices: newSubs }).catch(() => {});
+  }
+
+  function selectGroupSubServices(locId: string, serviceType: string, group: string) {
+    setIsDirty(true);
+    const groupValues = new Set(
+      (SUB_SERVICE_TYPES[serviceType] ?? []).filter((d) => d.group === group).map((d) => d.value)
+    );
+    setLocServices((prev) => {
+      const state = prev[locId] ?? { overrides: [], subServices: [], hasOverrides: true };
+      // Ensure all group items exist in subServices, then set available = true
+      const existingSubTypes = new Set(state.subServices.filter((s) => s.serviceType === serviceType).map((s) => s.subType));
+      const missingItems = [...groupValues].filter((v) => !existingSubTypes.has(v)).map((v) => ({ serviceType, subType: v, available: true }));
+      const updatedSubs = state.subServices.map((s) =>
+        s.serviceType === serviceType && groupValues.has(s.subType) ? { ...s, available: true } : s
+      );
+      return { ...prev, [locId]: { ...state, subServices: [...updatedSubs, ...missingItems] } };
+    });
+  }
+
+  function deselectGroupSubServices(locId: string, serviceType: string, group: string) {
+    setIsDirty(true);
+    const groupValues = new Set(
+      (SUB_SERVICE_TYPES[serviceType] ?? []).filter((d) => d.group === group).map((d) => d.value)
+    );
+    setLocServices((prev) => {
+      const state = prev[locId] ?? { overrides: [], subServices: [], hasOverrides: true };
+      const existingSubTypes = new Set(state.subServices.filter((s) => s.serviceType === serviceType).map((s) => s.subType));
+      const missingItems = [...groupValues].filter((v) => !existingSubTypes.has(v)).map((v) => ({ serviceType, subType: v, available: false }));
+      const updatedSubs = state.subServices.map((s) =>
+        s.serviceType === serviceType && groupValues.has(s.subType) ? { ...s, available: false } : s
+      );
+      return { ...prev, [locId]: { ...state, subServices: [...updatedSubs, ...missingItems] } };
+    });
+  }
+
+  async function handleCustomizeLocation(locId: string) {
+    setCustomizingLoc(locId);
+    try {
+      const newState = await initLocationFromOrgDefaults(locId);
+      setLocServices((prev) => ({ ...prev, [locId]: newState }));
+      toast.success("Location customized with org defaults");
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to customize location");
+    } finally {
+      setCustomizingLoc(null);
+    }
+  }
+
+  async function handleResetLocation(locId: string) {
+    if (!confirm("Reset this location to organization defaults? All custom service settings will be removed.")) return;
+    setResettingLoc(locId);
+    try {
+      await resetLocationToDefaults(locId);
+      setLocServices((prev) => ({
+        ...prev,
+        [locId]: { overrides: [], subServices: [], hasOverrides: false },
+      }));
+      toast.success("Location reset to org defaults");
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to reset location");
+    } finally {
+      setResettingLoc(null);
+    }
+  }
+
+  // Build org-level sub-service summary for default state display
+  function getOrgSubServiceSummary(): Array<{ label: string; count: number; total: number }> {
+    const summary: Array<{ label: string; count: number; total: number }> = [];
+    for (const svc of orgSelectedServices) {
+      const subItems = SUB_SERVICE_TYPES[svc.serviceType];
+      if (!subItems || subItems.length === 0) continue;
+      const orgCategory = orgSubServices?.categories[svc.serviceType];
+      const selectedCount = orgCategory?.filter((i) => i.selected).length ?? 0;
+      if (selectedCount > 0) {
+        const label = SERVICE_TYPES.find((st) => st.value === svc.serviceType)?.label ?? svc.serviceType;
+        summary.push({ label, count: selectedCount, total: subItems.length });
+      }
+    }
+    return summary;
   }
 
   function renderLocationServices(loc: SellerLocationData) {
     if (!loc.id || orgSelectedServices.length === 0) return null;
     const locId = loc.id;
+    const locState = locServices[locId];
+    const hasOverrides = locState?.hasOverrides ?? false;
 
+    if (!hasOverrides) {
+      // State A: Using org defaults
+      const summary = getOrgSubServiceSummary();
+      return (
+        <div className="border-t border-border pt-4">
+          <h4 className="text-sm font-semibold text-foreground mb-1">Service Details</h4>
+          <div className="rounded-lg border border-border bg-gray-light/50 p-4">
+            <p className="text-xs text-muted mb-2">
+              <svg className="inline w-3.5 h-3.5 mr-1 text-brand-teal" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a.75.75 0 000 1.5h.253a.25.25 0 01.244.304l-.459 2.066A1.75 1.75 0 0010.747 15H11a.75.75 0 000-1.5h-.253a.25.25 0 01-.244-.304l.459-2.066A1.75 1.75 0 009.253 9H9z" clipRule="evenodd" /></svg>
+              Using your organization&apos;s default price list.
+            </p>
+            {summary.length > 0 && (
+              <p className="text-xs text-muted">
+                {summary.map((s, i) => (
+                  <span key={s.label}>
+                    {i > 0 && " · "}
+                    {s.label} ({s.count} of {s.total})
+                  </span>
+                ))}
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={() => handleCustomizeLocation(locId)}
+              disabled={customizingLoc === locId || disabled}
+              className="mt-3 text-xs font-medium text-brand-teal hover:underline disabled:opacity-50"
+            >
+              {customizingLoc === locId ? "Customizing..." : "Customize for this location"}
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // State B: Custom overrides
     return (
       <div className="border-t border-border pt-4">
-        <h4 className="text-sm font-semibold text-foreground mb-1">Services at this Location</h4>
-        <p className="text-xs text-muted mb-3">
-          Inherited from your org defaults. Toggle off services not available at this location.
+        <div className="flex items-center justify-between mb-1">
+          <h4 className="text-sm font-semibold text-foreground">Service Details</h4>
+          <button
+            type="button"
+            onClick={() => handleResetLocation(locId)}
+            disabled={disabled || resettingLoc === locId}
+            className="text-xs text-muted hover:text-error hover:underline disabled:opacity-50"
+          >
+            {resettingLoc === locId ? "Resetting..." : "Reset to defaults"}
+          </button>
+        </div>
+        <p className="text-xs text-muted mb-1">
+          Toggle which services and sub-services are available at this location.
+        </p>
+        <p className="text-xs text-muted/70 mb-3">
+          Location-specific pricing is managed in the Price Lists section.
         </p>
         <div className="flex flex-col gap-2">
           {orgSelectedServices.map((svc) => {
-            const meta = SERVICE_TYPES.find((st) => st.value === svc.serviceType);
+            const meta = SELLER_SERVICE_TYPES.find((st) => st.value === svc.serviceType) ?? SERVICE_TYPES.find((st) => st.value === svc.serviceType);
             const override = getLocServiceOverride(locId, svc.serviceType);
             const isAvailable = override !== null ? override : true;
             const subItems = SUB_SERVICE_TYPES[svc.serviceType];
@@ -356,20 +513,25 @@ export function SellerLocationsForm({ initialData, sellerServiceOfferings, locat
 
             return (
               <div key={svc.serviceType}>
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <Checkbox
                     label={meta?.label ?? svc.serviceType}
                     name={`loc-svc-${locId}-${svc.serviceType}`}
                     checked={isAvailable}
                     onChange={() => toggleLocServiceOverride(locId, svc.serviceType, isAvailable)}
                   />
-                  {hasSubItems && isAvailable && (
-                    <button type="button" onClick={() => setModalTarget({ locId, serviceType: svc.serviceType })} className="text-xs text-brand-teal hover:underline ml-2">Configure</button>
-                  )}
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {!isAvailable && (
+                      <span className="text-xs text-muted italic">not offered at this location</span>
+                    )}
+                    {hasSubItems && isAvailable && subTotalCount > 0 && (
+                      <span className="text-xs text-muted">{subAvailableCount}/{subTotalCount}</span>
+                    )}
+                    {hasSubItems && isAvailable && (
+                      <button type="button" onClick={() => setModalTarget({ locId, serviceType: svc.serviceType })} className="text-xs text-brand-teal hover:underline">Configure &rarr;</button>
+                    )}
+                  </div>
                 </div>
-                {hasSubItems && isAvailable && subAvailableCount < subTotalCount && (
-                  <p className="ml-6 mt-0.5 text-xs text-muted">{subAvailableCount} of {subTotalCount} sub-services selected</p>
-                )}
               </div>
             );
           })}
@@ -379,7 +541,9 @@ export function SellerLocationsForm({ initialData, sellerServiceOfferings, locat
           const defs = SUB_SERVICE_TYPES[st] ?? [];
           const label = SERVICE_TYPES.find((s) => s.value === st)?.label ?? st;
           const stateMap: Record<string, boolean> = {};
-          for (const def of defs) stateMap[def.value] = getSubServiceAvailable(locId, st, def.value);
+          for (const def of defs) {
+            stateMap[def.value] = getSubServiceAvailable(locId, st, def.value);
+          }
           return (
             <SubServiceModal
               open
@@ -391,6 +555,8 @@ export function SellerLocationsForm({ initialData, sellerServiceOfferings, locat
               onToggle={(subType) => toggleSubService(locId, st, subType)}
               onSelectAll={() => selectAllSubServices(locId, st)}
               onDeselectAll={() => deselectAllSubServices(locId, st)}
+              onSelectGroup={(group) => selectGroupSubServices(locId, st, group)}
+              onDeselectGroup={(group) => deselectGroupSubServices(locId, st, group)}
             />
           );
         })()}
@@ -400,10 +566,6 @@ export function SellerLocationsForm({ initialData, sellerServiceOfferings, locat
 
   return (
     <div className="flex flex-col gap-6">
-      <p className="text-xs text-muted">
-        Register the physical locations where your organization delivers care. These locations will be available to plan buyers in the marketplace.
-      </p>
-
       <Card>
         <h3 className="text-lg font-heading font-semibold mb-1">Default Scheduling System</h3>
         <p className="text-xs text-muted mb-5">This applies to all locations unless overridden per-location below.</p>
@@ -630,14 +792,13 @@ export function SellerLocationsForm({ initialData, sellerServiceOfferings, locat
         />
       </div>
 
-      <div className="flex justify-between pt-4">
-        <Button variant="secondary" type="button" onClick={() => onNavigate("S-4")}>
-          &larr; Previous
-        </Button>
-        <Button type="button" onClick={async () => { await handleSave(); onNavigate("S-3"); }} disabled={disabled || saving}>
-          {saving ? "Saving..." : "Save & Next →"}
-        </Button>
-      </div>
+      <SellerSectionNavButtons
+        currentSection="S-2"
+        onNavigate={onNavigate}
+        onSave={handleSave}
+        isDirty={isDirty}
+        disabled={disabled}
+      />
     </div>
   );
 }

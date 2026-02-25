@@ -69,7 +69,7 @@ export async function saveSection6(data: Section6Data): Promise<SaveSection6Resu
   const providersWithIds = data.providers.map((p, i) => ({ ...p, id: providerIds[i] }));
   await writeSectionSnapshot(6, { providers: providersWithIds }, ctx.userId, ctx.affiliateId);
 
-  const statuses = await getCompletionStatuses(ctx.affiliateId);
+  const statuses = await getCompletionStatuses(ctx.affiliateId, ctx.programId ?? undefined);
   return { statuses, providerIds };
 }
 

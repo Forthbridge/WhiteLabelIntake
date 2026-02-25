@@ -15,6 +15,15 @@ interface SubServiceModalProps {
   onToggle: (subType: string) => void;
   onSelectAll: () => void;
   onDeselectAll: () => void;
+  /** Group-level select/deselect */
+  onSelectGroup?: (group: string) => void;
+  onDeselectGroup?: (group: string) => void;
+  /** Optional price map: subType → unitPrice (null = not set) */
+  prices?: Record<string, number | null>;
+  /** Optional org-level price map for placeholders: subType → orgPrice */
+  orgPrices?: Record<string, number | null>;
+  /** Optional callback for price changes */
+  onPriceChange?: (subType: string, price: number | null) => void;
 }
 
 export function SubServiceModal({
@@ -27,6 +36,11 @@ export function SubServiceModal({
   onToggle,
   onSelectAll,
   onDeselectAll,
+  onSelectGroup,
+  onDeselectGroup,
+  prices,
+  orgPrices,
+  onPriceChange,
 }: SubServiceModalProps) {
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -58,6 +72,7 @@ export function SubServiceModal({
 
   const selectedCount = items.filter((i) => i.selected).length;
   const totalCount = items.length;
+  const showPrices = !!prices && !!onPriceChange;
 
   return (
     <div
@@ -113,16 +128,132 @@ export function SubServiceModal({
           </div>
         </div>
 
-        {/* Grouped toggles */}
+        {/* Grouped toggles (with optional price inputs) */}
         <div className="px-5 pb-5">
-          <GroupedToggleGrid
-            serviceType={serviceType}
-            subServiceDefs={subServiceDefs}
-            items={items}
-            onToggle={onToggle}
-          />
+          {showPrices ? (
+            <SubServiceGridWithPrices
+              serviceType={serviceType}
+              subServiceDefs={subServiceDefs}
+              items={items}
+              onToggle={onToggle}
+              onSelectGroup={onSelectGroup}
+              onDeselectGroup={onDeselectGroup}
+              prices={prices!}
+              orgPrices={orgPrices}
+              onPriceChange={onPriceChange!}
+            />
+          ) : (
+            <GroupedToggleGrid
+              serviceType={serviceType}
+              subServiceDefs={subServiceDefs}
+              items={items}
+              onToggle={onToggle}
+              onSelectGroup={onSelectGroup}
+              onDeselectGroup={onDeselectGroup}
+            />
+          )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Grid that shows toggles + price inputs for each sub-service */
+function SubServiceGridWithPrices({
+  subServiceDefs,
+  items,
+  onToggle,
+  onSelectGroup,
+  onDeselectGroup,
+  prices,
+  orgPrices,
+  onPriceChange,
+}: {
+  serviceType: string;
+  subServiceDefs: SubServiceItem[];
+  items: Array<{ subType: string; selected: boolean }>;
+  onToggle: (subType: string) => void;
+  onSelectGroup?: (group: string) => void;
+  onDeselectGroup?: (group: string) => void;
+  prices: Record<string, number | null>;
+  orgPrices?: Record<string, number | null>;
+  onPriceChange: (subType: string, price: number | null) => void;
+}) {
+  // Group by group name
+  const groups = new Map<string, SubServiceItem[]>();
+  for (const def of subServiceDefs) {
+    const group = def.group || "General";
+    if (!groups.has(group)) groups.set(group, []);
+    groups.get(group)!.push(def);
+  }
+
+  const itemMap = new Map(items.map((i) => [i.subType, i.selected]));
+
+  return (
+    <div className="space-y-4">
+      {Array.from(groups.entries()).map(([groupName, defs]) => (
+        <div key={groupName}>
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="text-xs font-semibold text-muted uppercase tracking-wider">{groupName}</h4>
+            {(onSelectGroup || onDeselectGroup) && (
+              <div className="flex gap-2">
+                {onSelectGroup && (
+                  <button type="button" onClick={() => onSelectGroup(groupName)} className="text-[11px] text-brand-teal hover:underline">All</button>
+                )}
+                {onDeselectGroup && (
+                  <button type="button" onClick={() => onDeselectGroup(groupName)} className="text-[11px] text-muted hover:underline">None</button>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="space-y-1.5">
+            {defs.map((def) => {
+              const selected = itemMap.get(def.value) ?? true;
+              const price = prices[def.value];
+              const orgPrice = orgPrices?.[def.value];
+              return (
+                <div key={def.value} className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onToggle(def.value)}
+                    className={`flex-shrink-0 w-4 h-4 rounded border transition-colors ${
+                      selected
+                        ? "bg-brand-teal border-brand-teal"
+                        : "border-border bg-white"
+                    }`}
+                  >
+                    {selected && (
+                      <svg className="w-4 h-4 text-white" viewBox="0 0 16 16" fill="currentColor">
+                        <path fillRule="evenodd" d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.353 2.353 4.493-6.74a.75.75 0 0 1 1.04-.207Z" />
+                      </svg>
+                    )}
+                  </button>
+                  <span className={`flex-1 text-sm truncate ${selected ? "text-foreground" : "text-muted line-through"}`}>
+                    {def.label}
+                  </span>
+                  {selected && (
+                    <div className="relative flex-shrink-0 w-24">
+                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-muted text-xs pointer-events-none">$</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder={orgPrice != null ? orgPrice.toFixed(2) : "0.00"}
+                        className="w-full bg-transparent border border-border rounded pl-5 pr-1 py-1 text-xs text-right focus:border-focus focus:ring-0"
+                        value={price != null ? String(price) : ""}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          const parsed = parseFloat(val); onPriceChange(def.value, val === "" ? null : isNaN(parsed) ? null : parsed);
+                        }}
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

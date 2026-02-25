@@ -1,8 +1,7 @@
 import { z } from "zod";
 
 export const SELLER_SERVICE_TYPES = [
-  { value: "primary_care", label: "Primary Care" },
-  { value: "urgent_care", label: "Urgent Care" },
+  { value: "clinic_visit", label: "Clinic Visit" },
   { value: "labs", label: "Labs" },
   { value: "imaging", label: "Imaging" },
   { value: "immunizations", label: "Immunizations" },

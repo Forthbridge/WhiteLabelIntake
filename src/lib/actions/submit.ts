@@ -10,7 +10,7 @@ export async function submitForm() {
   await assertNotSubmitted(ctx.affiliateId);
 
   // Server-side gate: all sections 1-9 must be complete
-  const statuses = await getCompletionStatuses(ctx.affiliateId);
+  const statuses = await getCompletionStatuses(ctx.affiliateId, ctx.programId ?? undefined);
   const incomplete = [1, 2, 3, 4, 5, 6, 7, 9]
     .filter((id) => statuses[id] !== "complete");
 
@@ -43,20 +43,6 @@ export async function submitPhase(phaseNumber: number) {
 
   if (phaseNumber === 1) {
     return submitForm();
-  }
-
-  if (phaseNumber === 2) {
-    // Phase 2: Section 11 must be complete
-    const statuses = await getCompletionStatuses(ctx.affiliateId);
-    if (statuses[11] !== "complete") {
-      throw new Error("Cannot submit Phase 2: Service Configuration (Section 11) is not complete.");
-    }
-
-    await prisma.affiliatePhase.update({
-      where: { affiliateId_phase: { affiliateId: ctx.affiliateId, phase: 2 } },
-      data: { status: "SUBMITTED", submittedAt: new Date() },
-    });
-    return;
   }
 
   throw new Error(`Unknown phase: ${phaseNumber}`);

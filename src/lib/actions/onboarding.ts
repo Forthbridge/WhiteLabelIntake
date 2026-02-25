@@ -7,6 +7,7 @@ import { SERVICE_TYPES } from "@/lib/validations/section3";
 import { SUB_SERVICE_TYPES } from "@/lib/validations/section11";
 import type { AllSectionData, SellerFlowData } from "@/components/form/OnboardingClient";
 import type { CompletionStatus } from "@/types";
+import type { SectionReviewRow } from "./section-review";
 import type { Section1Data } from "@/lib/validations/section1";
 import type { Section2Data } from "@/lib/validations/section2";
 import type { Section3Data } from "@/lib/validations/section3";
@@ -17,8 +18,10 @@ import { SELLER_SERVICE_TYPES } from "@/lib/validations/seller-services";
 import type { SellerServicesData } from "@/lib/validations/seller-services";
 import type { SellerLabData } from "@/lib/validations/seller-lab";
 import type { SellerBillingData } from "@/lib/validations/seller-billing";
+import type { SellerPricingData } from "@/lib/validations/seller-pricing";
 import { computeSellerStatuses } from "./seller-org";
 import { loadAllLocationServices, type LocationServiceState } from "./location-services";
+import { loadSellerOrgSubServices } from "./seller-org-sub-services";
 
 interface PhaseInfo {
   phase: number;
@@ -30,13 +33,22 @@ interface RoleFlags {
   isSeller: boolean;
 }
 
+interface ProgramInfo {
+  id: string;
+  programName: string | null;
+}
+
 interface OnboardingData {
   sections: AllSectionData;
   statuses: Record<number, CompletionStatus>;
   formStatus: string;
   phases: PhaseInfo[];
   roles: RoleFlags;
+  networkLocationCount: number;
+  sectionReviews: SectionReviewRow[];
   sellerData?: SellerFlowData;
+  programs: ProgramInfo[];
+  allProgramData?: Record<string, AllSectionData>;
 }
 
 /**
@@ -113,11 +125,14 @@ async function loadOnboardingDataByAffiliateId(affiliateId: string): Promise<Onb
     where: { id: affiliateId },
     include: {
       programs: {
-        take: 1,
         include: { services: true, subServices: true },
+        orderBy: { createdAt: "asc" },
       },
       careNavConfigs: { take: 1 },
       phases: { orderBy: { phase: "asc" } },
+      sectionReviews: {
+        select: { sectionId: true, userId: true, confirmedAt: true },
+      },
     },
   });
 
@@ -125,6 +140,12 @@ async function loadOnboardingDataByAffiliateId(affiliateId: string): Promise<Onb
 
   const program = affiliate.programs[0] ?? null;
   const cn = affiliate.careNavConfigs[0] ?? null;
+
+  // Build program list for plan selector
+  const programs: ProgramInfo[] = affiliate.programs.map((p) => ({
+    id: p.id,
+    programName: p.programName,
+  }));
 
   // --- Phase data ---
   const phases: PhaseInfo[] = affiliate.phases.map((p) => ({
@@ -141,7 +162,6 @@ async function loadOnboardingDataByAffiliateId(affiliateId: string): Promise<Onb
 
   const s1: Section1Data = {
     legalName: affiliate.legalName ?? "",
-    programName: program?.programName ?? "",
     adminContactName: program?.adminContactName ?? "",
     adminContactEmail: program?.adminContactEmail ?? "",
     executiveSponsorName: program?.executiveSponsorName ?? "",
@@ -152,7 +172,7 @@ async function loadOnboardingDataByAffiliateId(affiliateId: string): Promise<Onb
   };
 
   const s2: Section2Data = {
-    defaultServicesConfirmed: program?.defaultServicesConfirmed ?? false,
+    programName: program?.programName ?? "",
   };
 
   const serviceMap = new Map(
@@ -180,49 +200,53 @@ async function loadOnboardingDataByAffiliateId(affiliateId: string): Promise<Onb
   };
 
   const s9: Section9Data = {
-    acknowledged: cn?.acknowledged ?? false,
     primaryEscalationName: cn?.primaryEscalationName ?? "",
     primaryEscalationEmail: cn?.primaryEscalationEmail ?? "",
     secondaryEscalationName: cn?.secondaryEscalationName ?? "",
     secondaryEscalationEmail: cn?.secondaryEscalationEmail ?? "",
   };
 
-  // --- Section 11: Sub-Services (only if Phase 2 unlocked) ---
-  let s11: Section11Data | undefined;
-  if (unlockedPhaseNumbers.includes(2)) {
-    const subServiceMap = new Map(
-      (program?.subServices ?? []).map((ss) => [`${ss.serviceType}:${ss.subType}`, ss.selected])
-    );
-    // Get selected service types from Section 3
-    const selectedServiceTypes = s3.services.filter((s) => s.selected).map((s) => s.serviceType);
-    const categories: Section11Data["categories"] = {};
-    for (const serviceType of selectedServiceTypes) {
-      const subItems = SUB_SERVICE_TYPES[serviceType];
-      if (!subItems) continue;
-      categories[serviceType] = subItems.map((item) => ({
-        subType: item.value,
-        selected: subServiceMap.get(`${serviceType}:${item.value}`) ?? false,
-      }));
+  // --- Section 11: Sub-Services (always loaded, used inline in Section 3) ---
+  const subServiceMap = new Map(
+    (program?.subServices ?? []).map((ss) => [`${ss.serviceType}:${ss.subType}`, ss.selected])
+  );
+  const selectedServiceTypes = s3.services.filter((s) => s.selected).map((s) => s.serviceType);
+  const categories: Section11Data["categories"] = {};
+  for (const serviceType of selectedServiceTypes) {
+    const subItems = SUB_SERVICE_TYPES[serviceType];
+    if (!subItems) continue;
+    categories[serviceType] = subItems.map((item) => ({
+      subType: item.value,
+      selected: subServiceMap.get(`${serviceType}:${item.value}`) ?? false,
+    }));
+  }
+  const s11: Section11Data = { categories };
+
+  // --- Count active network terms for section 5 (Care Network) status ---
+  let networkLocationCount = 0;
+  if (affiliate.isAffiliate) {
+    const terms = await prisma.networkContractTerm.findMany({
+      where: { contract: { affiliateId } },
+      orderBy: { createdAt: "desc" },
+      select: { contractId: true, sellerLocationId: true, status: true },
+    });
+    const seen = new Set<string>();
+    for (const t of terms) {
+      const key = `${t.contractId}:${t.sellerLocationId}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        if (t.status === "ACTIVE") networkLocationCount++;
+      }
     }
-    s11 = { categories };
   }
 
-  // --- Count network locations for section 5 (Care Network) status ---
-  const networkLocationCount = affiliate.isAffiliate
-    ? await prisma.networkContractLocation.count({
-        where: { contract: { affiliateId } },
-      }) + await prisma.networkContract.count({
-        where: { affiliateId, scopeAll: true },
-      })
-    : 0;
-
   // --- Compute completion statuses in-memory ---
-  const statuses = computeStatuses(affiliate, program, s3, cn, s11, unlockedPhaseNumbers, networkLocationCount);
+  const statuses = computeStatuses(affiliate, program, s3, cn, networkLocationCount);
 
   // --- Load seller data if org has seller role ---
   let sellerData: SellerFlowData | undefined;
   if (affiliate.isSeller) {
-    const [sellerProfile, sellerOfferings, sellerStatuses, locationServiceMap, sellerLocations, sellerProviders, sellerLabNetwork, sellerFlowRecord] = await Promise.all([
+    const [sellerProfile, sellerOfferings, sellerStatuses, locationServiceMap, sellerLocations, sellerProviders, sellerLabNetwork, sellerFlowRecord, orgSubServices] = await Promise.all([
       prisma.sellerProfile.findUnique({ where: { affiliateId } }),
       prisma.sellerServiceOffering.findMany({ where: { affiliateId } }),
       computeSellerStatuses(affiliateId),
@@ -241,6 +265,7 @@ async function loadOnboardingDataByAffiliateId(affiliateId: string): Promise<Onb
         where: { affiliateId_flowType: { affiliateId, flowType: "SELLER" } },
         select: { status: true },
       }),
+      loadSellerOrgSubServices(affiliateId),
     ]);
 
     const offeringMap = new Map(sellerOfferings.map((o) => [o.serviceType, o.selected]));
@@ -260,6 +285,29 @@ async function loadOnboardingDataByAffiliateId(affiliateId: string): Promise<Onb
       integrationAcknowledged: sellerLabNetwork?.integrationAcknowledged ?? false,
     };
 
+    // Build pricing data from offerings + org sub-services
+    const visitPriceOfferings = sellerOfferings.filter(
+      (o) => o.selected && o.serviceType === "clinic_visit"
+    );
+
+    // orgSubServices already loaded — extract selected items with prices
+    const allOrgSubs = await prisma.sellerOrgSubService.findMany({
+      where: { affiliateId, selected: true },
+      select: { serviceType: true, subType: true, unitPrice: true },
+    });
+
+    const sellerPricing: SellerPricingData = {
+      visitPrices: visitPriceOfferings.map((o) => ({
+        serviceType: o.serviceType,
+        price: o.basePricePerVisit ? Number(o.basePricePerVisit) : null,
+      })),
+      subServicePrices: allOrgSubs.map((s) => ({
+        serviceType: s.serviceType,
+        subType: s.subType,
+        unitPrice: s.unitPrice ? Number(s.unitPrice) : null,
+      })),
+    };
+
     const sellerBilling: SellerBillingData = {
       w9FilePath: sellerProfile?.w9FilePath ?? null,
       achAccountHolderName: sellerProfile?.achAccountHolderName ?? "",
@@ -273,6 +321,7 @@ async function loadOnboardingDataByAffiliateId(affiliateId: string): Promise<Onb
       defaultSchedulingSystem: affiliate.defaultSchedulingSystem ?? null,
       defaultSchedulingOtherName: affiliate.defaultSchedulingOtherName ?? null,
       defaultSchedulingAcknowledged: affiliate.defaultSchedulingAcknowledged ?? false,
+      orgSubServices,
       orgInfo: {
         legalName: sellerProfile?.legalName ?? affiliate.legalName ?? "",
         adminContactName: sellerProfile?.adminContactName ?? "",
@@ -283,6 +332,7 @@ async function loadOnboardingDataByAffiliateId(affiliateId: string): Promise<Onb
         operationsContactPhone: sellerProfile?.operationsContactPhone ?? "",
       },
       services: sellerServices,
+      pricing: sellerPricing,
       lab: sellerLab,
       billing: sellerBilling,
       locationServices: locationServiceMap,
@@ -328,6 +378,63 @@ async function loadOnboardingDataByAffiliateId(affiliateId: string): Promise<Onb
     };
   }
 
+  // Build per-program section data for all programs (enables plan switching)
+  const allProgramData: Record<string, AllSectionData> = {};
+  for (const prog of affiliate.programs) {
+    const progServiceMap = new Map(prog.services.map((s) => [s.serviceType, s]));
+    const progS2: Section2Data = { programName: prog.programName ?? "" };
+    const progS3: Section3Data = {
+      services: SERVICE_TYPES.map((st) => ({
+        serviceType: st.value,
+        selected: progServiceMap.get(st.value)?.selected ?? false,
+        otherName: progServiceMap.get(st.value)?.otherName ?? "",
+      })),
+    };
+
+    const progS4: Section4Data = {
+      w9FilePath: prog.w9FilePath ?? null,
+      achRoutingNumber: prog.achRoutingNumber ? decryptField(prog.achRoutingNumber) : "",
+      achAccountNumber: prog.achAccountNumber ? decryptField(prog.achAccountNumber) : "",
+      achAccountType: (prog.achAccountType as Section4Data["achAccountType"]) ?? null,
+      achAccountHolderName: prog.achAccountHolderName ?? "",
+      bankDocFilePath: prog.bankDocFilePath ?? null,
+      paymentAchAccountHolderName: prog.paymentAchAccountHolderName ?? "",
+      paymentAchAccountType: (prog.paymentAchAccountType as Section4Data["paymentAchAccountType"]) ?? null,
+      paymentAchRoutingNumber: prog.paymentAchRoutingNumber ? decryptField(prog.paymentAchRoutingNumber) : "",
+      paymentAchAccountNumber: prog.paymentAchAccountNumber ? decryptField(prog.paymentAchAccountNumber) : "",
+    };
+
+    // S1 contacts are per-program
+    const progS1: Section1Data = {
+      legalName: affiliate.legalName ?? "",
+      adminContactName: prog.adminContactName ?? "",
+      adminContactEmail: prog.adminContactEmail ?? "",
+      executiveSponsorName: prog.executiveSponsorName ?? "",
+      executiveSponsorEmail: prog.executiveSponsorEmail ?? "",
+      itContactName: prog.itContactName ?? "",
+      itContactEmail: prog.itContactEmail ?? "",
+      itContactPhone: prog.itContactPhone ?? "",
+    };
+
+    // Sub-services per program
+    const progSubServiceMap = new Map(
+      prog.subServices.map((ss) => [`${ss.serviceType}:${ss.subType}`, ss.selected])
+    );
+    const progSelectedServiceTypes = progS3.services.filter((s) => s.selected).map((s) => s.serviceType);
+    const progCategories: Section11Data["categories"] = {};
+    for (const serviceType of progSelectedServiceTypes) {
+      const subItems = SUB_SERVICE_TYPES[serviceType];
+      if (!subItems) continue;
+      progCategories[serviceType] = subItems.map((item) => ({
+        subType: item.value,
+        selected: progSubServiceMap.get(`${serviceType}:${item.value}`) ?? false,
+      }));
+    }
+    const progS11: Section11Data = { categories: progCategories };
+
+    allProgramData[prog.id] = { 1: progS1, 2: progS2, 3: progS3, 4: progS4, 9: s9, 11: progS11 };
+  }
+
   return {
     sections: { 1: s1, 2: s2, 3: s3, 4: s4, 9: s9, 11: s11 },
     statuses,
@@ -337,7 +444,11 @@ async function loadOnboardingDataByAffiliateId(affiliateId: string): Promise<Onb
       isAffiliate: affiliate.isAffiliate,
       isSeller: affiliate.isSeller,
     },
+    networkLocationCount,
+    sectionReviews: affiliate.sectionReviews,
     sellerData,
+    programs,
+    allProgramData,
   };
 }
 
@@ -361,28 +472,29 @@ function computeStatuses(
     paymentAchAccountType: string | null;
     paymentAchRoutingNumber: string | null;
     paymentAchAccountNumber: string | null;
-    defaultServicesConfirmed: boolean;
     services: { selected: boolean }[];
   } | null,
   s3: Section3Data,
-  cn: { acknowledged: boolean; primaryEscalationName: string | null; secondaryEscalationName: string | null } | null,
-  s11: Section11Data | undefined,
-  unlockedPhases: number[],
+  cn: { primaryEscalationName: string | null; secondaryEscalationName: string | null } | null,
   networkLocationCount: number,
 ): Record<number, CompletionStatus> {
   const statuses: Record<number, CompletionStatus> = {};
 
   // Section 1
   if (program) {
-    const fields = [affiliate.legalName, program.programName, program.adminContactName, program.adminContactEmail, program.executiveSponsorName, program.executiveSponsorEmail, program.itContactName];
+    const fields = [affiliate.legalName, program.adminContactName, program.adminContactEmail, program.executiveSponsorName, program.executiveSponsorEmail, program.itContactName];
     const filled = fields.filter(Boolean).length;
     statuses[1] = filled === 0 ? "not_started" : filled === fields.length ? "complete" : "in_progress";
   } else {
     statuses[1] = "not_started";
   }
 
-  // Section 2
-  statuses[2] = program?.defaultServicesConfirmed ? "complete" : "not_started";
+  // Section 2: Plan Name
+  if (program?.programName) {
+    statuses[2] = "complete";
+  } else {
+    statuses[2] = "not_started";
+  }
 
   // Section 3
   const selectedServices = s3.services.filter((s) => s.selected);
@@ -403,28 +515,10 @@ function computeStatuses(
   statuses[5] = networkLocationCount > 0 ? "complete" : "not_started";
 
   // Section 9
-  statuses[9] = !cn ? "not_started" : cn.acknowledged && cn.primaryEscalationName && cn.secondaryEscalationName ? "complete" : "in_progress";
+  statuses[9] = !cn ? "not_started" : cn.primaryEscalationName && cn.secondaryEscalationName ? "complete" : "in_progress";
 
   // Section 10
   statuses[10] = affiliate.status === "SUBMITTED" ? "complete" : "not_started";
-
-  // Section 11: Sub-Service Configuration (only if Phase 2 unlocked)
-  if (unlockedPhases.includes(2) && s11) {
-    const cats = Object.entries(s11.categories);
-    if (cats.length === 0) {
-      statuses[11] = "not_started";
-    } else {
-      const allCategoriesHaveSelection = cats.every(([, items]) =>
-        items.some((item) => item.selected)
-      );
-      const anyHasSelection = cats.some(([, items]) =>
-        items.some((item) => item.selected)
-      );
-      statuses[11] = allCategoriesHaveSelection ? "complete" : anyHasSelection ? "in_progress" : "not_started";
-    }
-  }
-
-  // Section 12 (Phase 2 review — not tracked for completion)
 
   return statuses;
 }

@@ -28,6 +28,9 @@ model User {
   sessions         Session[]
   accounts         Account[]
   sectionSnapshots SectionSnapshot[]
+  sectionReviews        SectionReview[]
+  contractTerms         NetworkContractTerm[] @relation("ContractTermUser")
+  contractTermUpdates   NetworkContractTerm[] @relation("ContractTermUpdater")
 
   @@map("users")
 }
@@ -95,8 +98,10 @@ model Affiliate {
   updatedAt   DateTime   @updatedAt
 
   // Organization role flags
-  isAffiliate Boolean @default(true)
-  isSeller    Boolean @default(false)
+  isAffiliate        Boolean @default(true)
+  isSeller           Boolean @default(false)
+  marketplaceEnabled Boolean @default(false)
+  multiPlanEnabled   Boolean @default(false)
 
   // Default scheduling system for all locations
   defaultSchedulingSystem       String? // "office_365" | "google_calendar" | "other"
@@ -123,6 +128,10 @@ model Affiliate {
   sellerLocations        SellerLocation[]
   sellerProviders        SellerProvider[]
   sellerLabNetworks      SellerLabNetwork[]
+  sellerOrgSubServices   SellerOrgSubService[]
+  sectionReviews         SectionReview[]
+  sellerPriceLists       SellerPriceList[]
+  buyerPriceListRules    SellerPriceListRule[] @relation("BuyerPriceListRules")
 
   @@map("affiliates")
 }
@@ -191,6 +200,8 @@ model Program {
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
   sectionSnapshots SectionSnapshot[]
+  networkContracts NetworkContract[]
+  priceListRules   SellerPriceListRule[]
 
   @@map("programs")
 }
@@ -476,16 +487,31 @@ model OnboardingFlow {
 
 // ─── Network Contracts (Admin-Managed) ───────────────────────────
 
+enum ContractTermStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum ContractTermInactiveReason {
+  PRICING_CHANGE
+  SERVICE_QUALITY
+  NO_LONGER_NEEDED
+  RELOCATED
+  CONTRACT_EXPIRED
+  OTHER
+}
+
 // ─── Seller Service Models ───────────────────────────────────────
 
 model SellerServiceOffering {
   id          String    @id @default(cuid())
   affiliateId String
   affiliate   Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
-  serviceType String
-  selected    Boolean   @default(false)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  serviceType      String
+  selected         Boolean   @default(false)
+  basePricePerVisit Decimal? @db.Decimal(10, 2)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   @@unique([affiliateId, serviceType])
   @@map("seller_service_offerings")
@@ -524,26 +550,45 @@ model NetworkContract {
   affiliate   Affiliate @relation("AffiliateContracts", fields: [affiliateId], references: [id], onDelete: Cascade)
   sellerId    String // The seller (care delivery org)
   seller      Affiliate @relation("SellerContracts", fields: [sellerId], references: [id], onDelete: Cascade)
-  scopeAll    Boolean   @default(true) // true = all seller locations; false = specific locations only
+  programId   String? // NULL = legacy/org-level contract
+  program     Program?  @relation(fields: [programId], references: [id], onDelete: Cascade)
+  priceListId String? // Which price list governs this contract
+  priceList   SellerPriceList? @relation(fields: [priceListId], references: [id], onDelete: SetNull)
   notes       String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  scopedLocations NetworkContractLocation[]
+  terms NetworkContractTerm[]
 
-  @@unique([affiliateId, sellerId])
+  @@unique([affiliateId, sellerId, programId])
   @@map("network_contracts")
 }
 
-model NetworkContractLocation {
-  id               String          @id @default(cuid())
+model NetworkContractTerm {
+  id               String                      @id @default(cuid())
   contractId       String
-  contract         NetworkContract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  contract         NetworkContract              @relation(fields: [contractId], references: [id], onDelete: Cascade)
   sellerLocationId String
-  sellerLocation   SellerLocation  @relation(fields: [sellerLocationId], references: [id], onDelete: Cascade)
+  sellerLocation   SellerLocation               @relation(fields: [sellerLocationId], references: [id], onDelete: Cascade)
 
-  @@unique([contractId, sellerLocationId])
-  @@map("network_contract_locations")
+  status           ContractTermStatus           @default(ACTIVE)
+  inactiveReason   ContractTermInactiveReason?
+  inactiveNote     String?
+
+  startDate        DateTime                     @default(now())
+  endDate          DateTime?
+
+  acceptedPricing  Json?
+  acceptedByUserId String?
+  acceptedByUser   User?                        @relation("ContractTermUser", fields: [acceptedByUserId], references: [id])
+
+  createdAt        DateTime                     @default(now())
+  updatedAt        DateTime                     @updatedAt
+  updatedByUserId  String?
+  updatedByUser    User?                        @relation("ContractTermUpdater", fields: [updatedByUserId], references: [id])
+
+  @@index([contractId, sellerLocationId])
+  @@map("network_contract_terms")
 }
 
 // ─── Seller-Owned Tables ────────────────────────────────────────
@@ -611,7 +656,9 @@ model SellerLocation {
   providerLocations        SellerProviderLocation[]
   serviceConfigs           SellerLocationServiceConfig[]
   subServices              SellerLocationSubService[]
-  networkContractLocations NetworkContractLocation[]
+  priceListVisitOverrides  SellerPriceListVisit[]
+  priceListSubOverrides    SellerPriceListSubService[]
+  contractTerms            NetworkContractTerm[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -683,6 +730,21 @@ model SellerLabNetwork {
   @@map("seller_lab_networks")
 }
 
+model SellerOrgSubService {
+  id          String    @id @default(cuid())
+  affiliateId String
+  affiliate   Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+  serviceType String
+  subType     String
+  selected    Boolean   @default(true)
+  unitPrice   Decimal?  @db.Decimal(10, 2)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([affiliateId, serviceType, subType])
+  @@map("seller_org_sub_services")
+}
+
 model SellerLocationServiceConfig {
   id               String         @id @default(cuid())
   sellerLocationId String
@@ -708,4 +770,84 @@ model SellerLocationSubService {
 
   @@unique([sellerLocationId, serviceType, subType])
   @@map("seller_location_sub_services")
+}
+
+// ─── Seller Price Lists ─────────────────────────────────────────
+
+model SellerPriceList {
+  id          String    @id @default(cuid())
+  affiliateId String // The seller org
+  affiliate   Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+  name        String // e.g., "Standard", "Next Level Special"
+  isPublic    Boolean   @default(true) // true = available to all buyers
+  isDefault   Boolean   @default(false) // true = the org's default price list (exactly one)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  visitPrices SellerPriceListVisit[]
+  subPrices   SellerPriceListSubService[]
+  rules       SellerPriceListRule[]
+  contracts   NetworkContract[]
+
+  @@map("seller_price_lists")
+}
+
+model SellerPriceListVisit {
+  id               String          @id @default(cuid())
+  priceListId      String
+  priceList        SellerPriceList @relation(fields: [priceListId], references: [id], onDelete: Cascade)
+  serviceType      String
+  pricePerVisit    Decimal?        @db.Decimal(10, 2)
+  sellerLocationId String?
+  sellerLocation   SellerLocation? @relation(fields: [sellerLocationId], references: [id], onDelete: Cascade)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@unique([priceListId, serviceType, sellerLocationId])
+  @@map("seller_price_list_visits")
+}
+
+model SellerPriceListSubService {
+  id               String          @id @default(cuid())
+  priceListId      String
+  priceList        SellerPriceList @relation(fields: [priceListId], references: [id], onDelete: Cascade)
+  serviceType      String
+  subType          String
+  unitPrice        Decimal?        @db.Decimal(10, 2)
+  sellerLocationId String?
+  sellerLocation   SellerLocation? @relation(fields: [sellerLocationId], references: [id], onDelete: Cascade)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@unique([priceListId, serviceType, subType, sellerLocationId])
+  @@map("seller_price_list_sub_services")
+}
+
+model SellerPriceListRule {
+  id          String          @id @default(cuid())
+  priceListId String
+  priceList   SellerPriceList @relation(fields: [priceListId], references: [id], onDelete: Cascade)
+  buyerId     String // Buyer org that can see this list
+  buyer       Affiliate       @relation("BuyerPriceListRules", fields: [buyerId], references: [id], onDelete: Cascade)
+  programId   String? // NULL = all of buyer's plans; set = specific plan only
+  program     Program?        @relation(fields: [programId], references: [id], onDelete: Cascade)
+  createdAt   DateTime        @default(now())
+
+  @@unique([priceListId, buyerId, programId])
+  @@map("seller_price_list_rules")
+}
+
+// ─── Section Review Confirmations ───────────────────────────────
+
+model SectionReview {
+  id          String    @id @default(cuid())
+  affiliateId String
+  affiliate   Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+  sectionId   Int
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+  confirmedAt DateTime  @default(now())
+
+  @@unique([affiliateId, sectionId])
+  @@map("section_reviews")
 }

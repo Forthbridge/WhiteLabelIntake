@@ -12,7 +12,7 @@ import type { Section4Data } from "@/lib/validations/section4";
 import { useCompletion } from "@/lib/contexts/CompletionContext";
 import { useAdminForm } from "@/lib/contexts/AdminFormContext";
 import { SectionNavButtons } from "../SectionNavButtons";
-import { useSyncSectionCache, useReportDirty } from "../OnboardingClient";
+import { useSyncSectionCache, useReportDirty, useSelectedProgram } from "../OnboardingClient";
 
 const ACCOUNT_TYPE_OPTIONS = [
   { value: "checking", label: "Checking" },
@@ -24,11 +24,12 @@ export function Section4Form({ initialData, onNavigate, disabled }: { initialDat
   useSyncSectionCache(4, data);
   const { updateStatuses } = useCompletion();
   const adminCtx = useAdminForm();
+  const selectedProgramId = useSelectedProgram();
 
   const onSave = useCallback(async (d: Section4Data) => {
     if (adminCtx?.isAdminEditing) return saveSection4ForAffiliate(adminCtx.affiliateId, d);
-    return saveSection4(d);
-  }, [adminCtx]);
+    return saveSection4(d, selectedProgramId ?? undefined);
+  }, [adminCtx, selectedProgramId]);
 
   const { save, isDirty } = useSaveOnNext({ data, onSave, onAfterSave: updateStatuses });
   useReportDirty(4, isDirty);
@@ -56,7 +57,7 @@ export function Section4Form({ initialData, onNavigate, disabled }: { initialDat
       <Card>
         <h3 className="text-lg font-heading font-semibold mb-1">Payout Account</h3>
         <p className="text-xs text-muted mb-5">
-          Bank account where payouts will be deposited. This information is encrypted at the application level for security.
+          This is where we deposit payouts to you. This information is encrypted at the application level for security.
         </p>
         <div className="grid gap-5">
           <Input label="Account Holder Name" name="achAccountHolderName" required value={data.achAccountHolderName ?? ""} onChange={(e) => update("achAccountHolderName", e.target.value)} />
@@ -83,7 +84,7 @@ export function Section4Form({ initialData, onNavigate, disabled }: { initialDat
       <Card>
         <h3 className="text-lg font-heading font-semibold mb-1">Payment Account (Invoice Autocollect)</h3>
         <p className="text-xs text-muted mb-5">
-          Bank account for automated invoice collection. This information is encrypted at the application level for security.
+          This is the account we&apos;ll use to automatically collect invoices. This information is encrypted at the application level for security.
         </p>
         <div className="grid gap-5">
           <Input label="Account Holder Name" name="paymentAchAccountHolderName" required value={data.paymentAchAccountHolderName ?? ""} onChange={(e) => update("paymentAchAccountHolderName", e.target.value)} />

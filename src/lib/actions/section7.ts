@@ -50,5 +50,5 @@ export async function saveSection7(data: Section7Data): Promise<Record<number, C
 
   await writeSectionSnapshot(7, data, ctx.userId, ctx.affiliateId);
 
-  return getCompletionStatuses(ctx.affiliateId);
+  return getCompletionStatuses(ctx.affiliateId, ctx.programId ?? undefined);
 }

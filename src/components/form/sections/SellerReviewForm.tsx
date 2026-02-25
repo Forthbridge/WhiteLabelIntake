@@ -9,6 +9,7 @@ import { SELLER_SECTIONS } from "@/types";
 import { SERVICE_TYPES } from "@/lib/validations/section3";
 import { SELLER_SERVICE_TYPES } from "@/lib/validations/seller-services";
 import { SUB_SERVICE_TYPES } from "@/lib/validations/section11";
+import { ServiceReviewAccordion } from "@/components/ui/ServiceToggles";
 import { submitSellerFlow } from "@/lib/actions/seller-submit";
 import type { CompletionStatus, SellerSectionId } from "@/types";
 import type { SellerFlowData } from "@/components/form/OnboardingClient";
@@ -122,86 +123,139 @@ export function SellerReviewForm({ sellerData, statuses, onNavigate, onSubmitted
 
       <Card>
         <div className="flex justify-between items-center mb-3">
-          <h3 className="text-base font-heading font-semibold">Services Offered</h3>
+          <h3 className="text-base font-heading font-semibold">Default Services</h3>
           {onNavigate && (
             <button type="button" onClick={() => onNavigate("S-4")} className="text-xs text-brand-teal hover:underline">Edit</button>
           )}
         </div>
         {selectedServices.length > 0 ? (
-          <ul className="text-sm space-y-1">
+          <div className="flex flex-col gap-2">
             {selectedServices.map((s) => {
               const label = SELLER_SERVICE_TYPES.find((st) => st.value === s.serviceType)?.label
                 ?? SERVICE_TYPES.find((st) => st.value === s.serviceType)?.label
                 ?? s.serviceType;
-              return <li key={s.serviceType}>{label}</li>;
+              const orgCategory = sellerData.orgSubServices?.categories[s.serviceType];
+              const selectedSubTypes = orgCategory?.filter((i) => i.selected).map((i) => i.subType) ?? [];
+              const totalSubs = SUB_SERVICE_TYPES[s.serviceType]?.length ?? 0;
+
+              if (totalSubs > 0 && selectedSubTypes.length > 0) {
+                return (
+                  <ServiceReviewAccordion
+                    key={s.serviceType}
+                    serviceType={s.serviceType}
+                    label={label}
+                    selectedSubTypes={selectedSubTypes}
+                  />
+                );
+              }
+
+              return (
+                <div key={s.serviceType} className="flex items-baseline justify-between py-1.5 border-b border-border/50 last:border-0">
+                  <span className="text-sm">{label}</span>
+                  {totalSubs > 0 && (
+                    <span className="text-xs text-muted">No sub-services configured</span>
+                  )}
+                </div>
+              );
             })}
-          </ul>
+          </div>
         ) : (
           <p className="text-sm text-muted">No services selected</p>
         )}
       </Card>
 
+      {/* Price List */}
+      {((sellerData.pricing?.visitPrices?.length ?? 0) > 0 || (sellerData.pricing?.subServicePrices?.length ?? 0) > 0) && (
+        <Card>
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="text-base font-heading font-semibold">Default Price List</h3>
+            {onNavigate && (
+              <button type="button" onClick={() => onNavigate("S-7")} className="text-xs text-brand-teal hover:underline">Edit</button>
+            )}
+          </div>
+          {sellerData.pricing?.visitPrices?.filter((v) => v.price != null).map((vp) => (
+            <Field key={vp.serviceType} label={SELLER_SERVICE_TYPES.find((st) => st.value === vp.serviceType)?.label ?? vp.serviceType} value={`$${Number(vp.price).toFixed(2)} per visit`} />
+          ))}
+          {(sellerData.pricing?.subServicePrices?.filter((s) => s.unitPrice != null).length ?? 0) > 0 && (
+            <p className="text-xs text-muted mt-2">
+              {sellerData.pricing!.subServicePrices!.filter((s) => s.unitPrice != null).length} sub-service{sellerData.pricing!.subServicePrices!.filter((s) => s.unitPrice != null).length !== 1 ? "s" : ""} priced
+            </p>
+          )}
+        </Card>
+      )}
+
       {/* Per-Location Overrides */}
       {sellerData.locations.length > 0 && (
         <Card>
           <div className="flex justify-between items-center mb-3">
-            <h3 className="text-base font-heading font-semibold">Per-Location Service Overrides</h3>
+            <h3 className="text-base font-heading font-semibold">Per-Location Service Details</h3>
             {onNavigate && (
               <button type="button" onClick={() => onNavigate("S-2")} className="text-xs text-brand-teal hover:underline">Edit</button>
             )}
           </div>
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-4">
             {sellerData.locations.map((loc, idx) => {
               const locId = loc.id;
               const locState = locId ? sellerData.locationServices[locId] : undefined;
-              if (!locState) {
+              const hasOverrides = locState?.hasOverrides ?? false;
+
+              if (!hasOverrides) {
                 return (
-                  <div key={locId ?? idx} className="border-b border-border/50 last:border-0 pb-2 last:pb-0">
+                  <div key={locId ?? idx} className="border-b border-border/50 last:border-0 pb-3 last:pb-0">
                     <p className="text-sm font-medium text-foreground">{loc.locationName || "Unnamed location"}</p>
-                    <p className="text-xs text-muted">Using org defaults (no overrides)</p>
+                    <p className="text-xs text-muted mt-0.5">Using organization defaults</p>
                   </div>
                 );
               }
 
-              const disabledServices = locState.overrides.filter((o: { serviceType: string; available: boolean }) => !o.available);
-              const subOverrides: Array<{ label: string; count: number; total: number }> = [];
+              const disabledServices = locState!.overrides.filter((o) => !o.available);
 
+              // Build per-service accordion data for this location
+              const locationAccordions: Array<{ serviceType: string; label: string; selectedSubTypes: string[] }> = [];
               for (const svc of selectedServices) {
+                // Check if service is disabled at this location
+                if (disabledServices.some((ds) => ds.serviceType === svc.serviceType)) continue;
                 const subs = SUB_SERVICE_TYPES[svc.serviceType];
                 if (!subs || subs.length === 0) continue;
-                const locSubs = locState.subServices.filter((s: { serviceType: string; subType: string; available: boolean }) => s.serviceType === svc.serviceType);
+                const locSubs = locState!.subServices.filter((s) => s.serviceType === svc.serviceType);
                 if (locSubs.length === 0) continue;
-                const availableCount = subs.filter((sub) => {
-                  const override = locSubs.find((ls: { subType: string; available: boolean }) => ls.subType === sub.value);
-                  return override ? override.available : true;
-                }).length;
-                if (availableCount < subs.length) {
-                  const label = SELLER_SERVICE_TYPES.find((st) => st.value === svc.serviceType)?.label
-                    ?? SERVICE_TYPES.find((st) => st.value === svc.serviceType)?.label
-                    ?? svc.serviceType;
-                  subOverrides.push({ label, count: availableCount, total: subs.length });
-                }
+                const availableSubTypes = subs
+                  .filter((sub) => {
+                    const override = locSubs.find((ls) => ls.subType === sub.value);
+                    return override ? override.available : true;
+                  })
+                  .map((sub) => sub.value);
+                const label = SELLER_SERVICE_TYPES.find((st) => st.value === svc.serviceType)?.label
+                  ?? SERVICE_TYPES.find((st) => st.value === svc.serviceType)?.label
+                  ?? svc.serviceType;
+                locationAccordions.push({ serviceType: svc.serviceType, label, selectedSubTypes: availableSubTypes });
               }
 
-              const hasOverrides = disabledServices.length > 0 || subOverrides.length > 0;
-
               return (
-                <div key={locId ?? idx} className="border-b border-border/50 last:border-0 pb-2 last:pb-0">
-                  <p className="text-sm font-medium text-foreground">{loc.locationName || "Unnamed location"}</p>
-                  {!hasOverrides ? (
-                    <p className="text-xs text-muted">Using org defaults (no overrides)</p>
-                  ) : (
-                    <ul className="text-xs text-muted mt-0.5 space-y-0.5">
-                      {disabledServices.map((ds: { serviceType: string }) => {
+                <div key={locId ?? idx} className="border-b border-border/50 last:border-0 pb-3 last:pb-0">
+                  <p className="text-sm font-medium text-foreground mb-2">{loc.locationName || "Unnamed location"}</p>
+                  {disabledServices.length > 0 && (
+                    <ul className="text-xs text-muted mb-2 space-y-0.5">
+                      {disabledServices.map((ds) => {
                         const label = SELLER_SERVICE_TYPES.find((st) => st.value === ds.serviceType)?.label
                           ?? SERVICE_TYPES.find((st) => st.value === ds.serviceType)?.label
                           ?? ds.serviceType;
                         return <li key={ds.serviceType}>{label} &middot; Disabled</li>;
                       })}
-                      {subOverrides.map((so) => (
-                        <li key={so.label}>{so.label} &middot; {so.count} of {so.total} sub-services</li>
-                      ))}
                     </ul>
+                  )}
+                  {locationAccordions.length > 0 && (
+                    <div className="flex flex-col gap-2">
+                      {locationAccordions.map((acc) => (
+                        <ServiceReviewAccordion
+                          key={acc.serviceType}
+                          serviceType={acc.serviceType}
+                          label={acc.label}
+                          selectedSubTypes={acc.selectedSubTypes}
+                          defaultExpanded={false}
+                        />
+                      ))}
+                    </div>
                   )}
                 </div>
               );
@@ -226,7 +280,7 @@ export function SellerReviewForm({ sellerData, statuses, onNavigate, onSubmitted
 
       <Card>
         <div className="flex justify-between items-center mb-3">
-          <h3 className="text-base font-heading font-semibold">Billing Setup</h3>
+          <h3 className="text-base font-heading font-semibold">Payment Account</h3>
           {onNavigate && (
             <button type="button" onClick={() => onNavigate("S-6")} className="text-xs text-brand-teal hover:underline">Edit</button>
           )}

@@ -6,7 +6,8 @@ import { Card } from "@/components/ui/Card";
 import { useSaveOnNext } from "@/lib/hooks/useSaveOnNext";
 import { saveSellerOrgInfo } from "@/lib/actions/seller-org";
 import type { SellerOrgData } from "@/lib/validations/seller-org";
-import { Button } from "@/components/ui/Button";
+import { SellerSectionNavButtons } from "../SellerSectionNavButtons";
+import { useReportDirty, useSellerCacheUpdater } from "../OnboardingClient";
 
 interface Props {
   initialData: SellerOrgData;
@@ -17,12 +18,16 @@ interface Props {
 export function SellerOrgInfoForm({ initialData, onNavigate, disabled }: Props) {
   const [data, setData] = useState<SellerOrgData>(initialData);
 
+  const updateSellerCache = useSellerCacheUpdater();
+
   const onSave = useCallback(async (d: SellerOrgData) => {
     await saveSellerOrgInfo(d);
+    updateSellerCache("orgInfo", d);
     return {};
-  }, []);
+  }, [updateSellerCache]);
 
   const { save, isDirty } = useSaveOnNext({ data, onSave });
+  useReportDirty("S-1", isDirty);
 
   function update(field: keyof SellerOrgData, value: string) {
     setData((prev) => ({ ...prev, [field]: value }));
@@ -118,20 +123,13 @@ export function SellerOrgInfoForm({ initialData, onNavigate, disabled }: Props) 
         </div>
       </Card>
 
-      {!disabled && (
-        <div className="flex justify-end pt-4">
-          <Button
-            variant="cta"
-            type="button"
-            onClick={async () => {
-              await save();
-              onNavigate?.("S-4");
-            }}
-          >
-            {isDirty ? "Save & Next \u2192" : "Next \u2192"}
-          </Button>
-        </div>
-      )}
+      <SellerSectionNavButtons
+        currentSection="S-1"
+        onNavigate={onNavigate}
+        onSave={save}
+        isDirty={isDirty}
+        disabled={disabled}
+      />
     </div>
   );
 }

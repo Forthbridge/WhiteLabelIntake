@@ -5,10 +5,11 @@ import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { FileUpload } from "@/components/ui/FileUpload";
-import { Button } from "@/components/ui/Button";
 import { useSaveOnNext } from "@/lib/hooks/useSaveOnNext";
 import { saveSellerBilling } from "@/lib/actions/seller-billing";
 import type { SellerBillingData } from "@/lib/validations/seller-billing";
+import { SellerSectionNavButtons } from "../SellerSectionNavButtons";
+import { useReportDirty, useSellerCacheUpdater } from "../OnboardingClient";
 
 const ACCOUNT_TYPE_OPTIONS = [
   { value: "checking", label: "Checking" },
@@ -25,13 +26,17 @@ interface Props {
 export function SellerBillingForm({ initialData, onNavigate, onStatusUpdate, disabled }: Props) {
   const [data, setData] = useState<SellerBillingData>(initialData);
 
+  const updateSellerCache = useSellerCacheUpdater();
+
   const onSave = useCallback(async (d: SellerBillingData) => {
     const statuses = await saveSellerBilling(d);
+    updateSellerCache("billing", d);
     onStatusUpdate?.(statuses);
     return {};
-  }, [onStatusUpdate]);
+  }, [onStatusUpdate, updateSellerCache]);
 
   const { save, isDirty } = useSaveOnNext({ data, onSave });
+  useReportDirty("S-6", isDirty);
 
   function update(field: keyof SellerBillingData, value: string | null) {
     setData((prev) => ({ ...prev, [field]: value }));
@@ -54,9 +59,9 @@ export function SellerBillingForm({ initialData, onNavigate, onStatusUpdate, dis
       </Card>
 
       <Card>
-        <h3 className="text-lg font-heading font-semibold mb-1">Payout Account</h3>
+        <h3 className="text-lg font-heading font-semibold mb-1">Payment Account</h3>
         <p className="text-xs text-muted mb-5">
-          Bank account where payouts will be deposited. This information is encrypted at the application level for security.
+          Bank account where patient payments collected on your behalf will be deposited. This information is encrypted at the application level for security.
         </p>
         <div className="grid gap-5">
           <Input
@@ -111,23 +116,13 @@ export function SellerBillingForm({ initialData, onNavigate, onStatusUpdate, dis
         />
       </Card>
 
-      {!disabled && (
-        <div className="flex justify-between pt-4">
-          <Button variant="secondary" type="button" onClick={() => onNavigate?.("S-5")}>
-            &larr; Previous
-          </Button>
-          <Button
-            variant="cta"
-            type="button"
-            onClick={async () => {
-              await save();
-              onNavigate?.("S-R");
-            }}
-          >
-            {isDirty ? "Save & Next \u2192" : "Next \u2192"}
-          </Button>
-        </div>
-      )}
+      <SellerSectionNavButtons
+        currentSection="S-6"
+        onNavigate={onNavigate}
+        onSave={save}
+        isDirty={isDirty}
+        disabled={disabled}
+      />
     </div>
   );
 }

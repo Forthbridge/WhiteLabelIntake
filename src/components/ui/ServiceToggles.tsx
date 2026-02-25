@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Card } from "@/components/ui/Card";
-import { getGroupsForServiceType } from "@/lib/validations/section11";
+import { getGroupsForServiceType, SUB_SERVICE_TYPES } from "@/lib/validations/section11";
 import type { SubServiceItem } from "@/lib/validations/section11";
 
 // ─── Toggle Item ────────────────────────────────────────────────────
@@ -62,12 +62,16 @@ export function GroupedToggleGrid({
   subServiceDefs,
   items,
   onToggle,
+  onSelectGroup,
+  onDeselectGroup,
   disabled,
 }: {
   serviceType: string;
   subServiceDefs: SubServiceItem[];
   items: { subType: string; selected: boolean }[];
   onToggle: (subType: string) => void;
+  onSelectGroup?: (group: string) => void;
+  onDeselectGroup?: (group: string) => void;
   disabled?: boolean;
 }) {
   const groups = getGroupsForServiceType(serviceType);
@@ -80,7 +84,19 @@ export function GroupedToggleGrid({
           const groupItems = subServiceDefs.filter((d) => d.group === group);
           return (
             <div key={group} className="mb-4 last:mb-0">
-              <h4 className="text-xs font-semibold uppercase tracking-wider text-muted mb-2">{group}</h4>
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-muted">{group}</h4>
+                {(onSelectGroup || onDeselectGroup) && !disabled && (
+                  <div className="flex gap-2">
+                    {onSelectGroup && (
+                      <button type="button" onClick={() => onSelectGroup(group)} className="text-[11px] text-brand-teal hover:underline">All</button>
+                    )}
+                    {onDeselectGroup && (
+                      <button type="button" onClick={() => onDeselectGroup(group)} className="text-[11px] text-muted hover:underline">None</button>
+                    )}
+                  </div>
+                )}
+              </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
                 {groupItems.map((def) => {
                   const item = items.find((i) => i.subType === def.value);
@@ -209,5 +225,91 @@ export function ServiceAccordion({
         </div>
       )}
     </Card>
+  );
+}
+
+// ─── Service Review Accordion (Read-Only) ────────────────────────────
+
+export interface ServiceReviewAccordionProps {
+  serviceType: string;
+  label: string;
+  selectedSubTypes: string[];
+  defaultExpanded?: boolean;
+}
+
+export function ServiceReviewAccordion({
+  serviceType,
+  label,
+  selectedSubTypes,
+  defaultExpanded = true,
+}: ServiceReviewAccordionProps) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
+
+  const allDefs = SUB_SERVICE_TYPES[serviceType] ?? [];
+  const totalCount = allDefs.length;
+  const selectedCount = selectedSubTypes.length;
+  const groups = getGroupsForServiceType(serviceType);
+  const hasGroups = groups.length > 1;
+
+  // Build a set for quick lookup
+  const selectedSet = new Set(selectedSubTypes);
+
+  return (
+    <div className="border border-border rounded-lg overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-light/50 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <svg
+            className={`h-4 w-4 text-muted transition-transform ${expanded ? "rotate-90" : ""}`}
+            viewBox="0 0 20 20"
+            fill="currentColor"
+          >
+            <path
+              fillRule="evenodd"
+              d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
+              clipRule="evenodd"
+            />
+          </svg>
+          <span className="text-sm font-medium text-foreground">{label}</span>
+        </div>
+        <span className={`text-xs font-medium ${selectedCount > 0 ? "text-brand-teal" : "text-muted"}`}>
+          {selectedCount} of {totalCount} selected
+        </span>
+      </button>
+
+      {expanded && (
+        <div className="px-4 pb-4 border-t border-border pt-3">
+          {hasGroups ? (
+            groups.map((group) => {
+              const groupDefs = allDefs.filter((d) => d.group === group);
+              const groupSelected = groupDefs.filter((d) => selectedSet.has(d.value));
+              if (groupSelected.length === 0) return null;
+              return (
+                <div key={group} className="mb-3 last:mb-0">
+                  <h5 className="text-xs font-semibold uppercase tracking-wider text-muted mb-1">{group}</h5>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-0.5">
+                    {groupSelected.map((def) => (
+                      <span key={def.value} className="text-sm text-foreground py-0.5">{def.label}</span>
+                    ))}
+                  </div>
+                </div>
+              );
+            })
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-0.5">
+              {allDefs.filter((d) => selectedSet.has(d.value)).map((def) => (
+                <span key={def.value} className="text-sm text-foreground py-0.5">{def.label}</span>
+              ))}
+            </div>
+          )}
+          {selectedCount === 0 && (
+            <p className="text-sm text-muted italic">No sub-services selected</p>
+          )}
+        </div>
+      )}
+    </div>
   );
 }

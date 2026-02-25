@@ -12,6 +12,8 @@ import { CSVUploadButton } from "@/components/ui/CSVUploadButton";
 import { PROVIDER_CSV_COLUMNS, providerCSVRowSchema } from "@/lib/csv/providerColumns";
 import type { ProviderCSVRow } from "@/lib/csv/providerColumns";
 import type { CompletionStatus, SellerSectionId } from "@/types";
+import { SellerSectionNavButtons } from "../SellerSectionNavButtons";
+import { useReportDirty, useSellerCacheUpdater } from "../OnboardingClient";
 
 const US_STATES = [
   "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA",
@@ -51,24 +53,35 @@ interface SellerProvidersFormProps {
 export function SellerProvidersForm({ initialData, onNavigate, onStatusUpdate, disabled }: SellerProvidersFormProps) {
   const [openIndex, setOpenIndex] = useState<number>(0);
   const [saving, setSaving] = useState(false);
-  const [data, setData] = useState<SellerProvidersData>(() => {
+  const [_data, _setData] = useState<SellerProvidersData>(() => {
     if (initialData.providers.length === 0) {
       return { providers: [emptyProvider()] };
     }
     return initialData;
   });
 
+  // Dirty tracking
+  const [isDirty, setIsDirty] = useState(false);
+  useReportDirty("S-3", isDirty);
+
+  // Wrap setData so every mutation marks dirty
+  const data = _data;
+  const setData: typeof _setData = useCallback((action) => {
+    setIsDirty(true);
+    _setData(action);
+  }, []);
+
+  const updateSellerCache = useSellerCacheUpdater();
+
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
       const result = await saveSellerProviders(data);
-      setData((prev) => {
-        const updated = prev.providers.map((p, i) =>
-          p.id !== result.providerIds[i] ? { ...p, id: result.providerIds[i] } : p
-        );
-        return updated.some((p, i) => p !== prev.providers[i]) ? { providers: updated } : prev;
-      });
+      const savedProviders = data.providers.map((p, i) => ({ ...p, id: result.providerIds[i] ?? p.id }));
+      _setData({ providers: savedProviders });
+      updateSellerCache("providers", savedProviders);
       onStatusUpdate(result.statuses);
+      setIsDirty(false);
       toast.success("Providers saved");
     } catch (err) {
       console.error(err);
@@ -128,10 +141,6 @@ export function SellerProvidersForm({ initialData, onNavigate, onStatusUpdate, d
 
   return (
     <div className="flex flex-col gap-6">
-      <p className="text-xs text-muted">
-        Add the credentialed providers who deliver care at your locations. These providers will be visible to plan buyers in the marketplace.
-      </p>
-
       {data.providers.map((prov, index) => {
         const isOpen = index === openIndex;
         const isComplete = providerComplete(prov);
@@ -231,14 +240,13 @@ export function SellerProvidersForm({ initialData, onNavigate, onStatusUpdate, d
         />
       </div>
 
-      <div className="flex justify-between pt-4">
-        <Button variant="secondary" type="button" onClick={() => onNavigate("S-2")}>
-          &larr; Previous
-        </Button>
-        <Button type="button" onClick={async () => { await handleSave(); onNavigate("S-5"); }} disabled={disabled || saving}>
-          {saving ? "Saving..." : "Save & Next →"}
-        </Button>
-      </div>
+      <SellerSectionNavButtons
+        currentSection="S-3"
+        onNavigate={onNavigate}
+        onSave={handleSave}
+        isDirty={isDirty}
+        disabled={disabled}
+      />
     </div>
   );
 }

@@ -12,27 +12,29 @@ export async function loadSection2(): Promise<Section2Data> {
   const program = ctx.programId
     ? await prisma.program.findUnique({
         where: { id: ctx.programId },
-        select: { defaultServicesConfirmed: true },
+        select: { programName: true },
       })
     : null;
 
   return {
-    defaultServicesConfirmed: program?.defaultServicesConfirmed ?? false,
+    programName: program?.programName ?? "",
   };
 }
 
-export async function saveSection2(data: Section2Data): Promise<Record<number, CompletionStatus>> {
-  const ctx = await getSessionContext();
+export async function saveSection2(data: Section2Data, selectedProgramId?: string): Promise<Record<number, CompletionStatus>> {
+  const ctx = await getSessionContext(selectedProgramId);
   await assertNotSubmitted(ctx.affiliateId);
 
   if (ctx.programId) {
     await prisma.program.update({
       where: { id: ctx.programId },
-      data: { defaultServicesConfirmed: data.defaultServicesConfirmed },
+      data: {
+        programName: data.programName || null,
+      },
     });
   }
 
   await writeSectionSnapshot(2, data, ctx.userId, ctx.affiliateId, ctx.programId);
 
-  return getCompletionStatuses(ctx.affiliateId);
+  return getCompletionStatuses(ctx.affiliateId, ctx.programId ?? undefined);
 }

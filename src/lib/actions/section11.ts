@@ -39,11 +39,11 @@ export async function loadSection11(): Promise<Section11Data> {
   return { categories };
 }
 
-export async function saveSection11(data: Section11Data): Promise<Record<number, CompletionStatus>> {
-  const ctx = await getSessionContext();
-  await assertPhaseNotSubmitted(ctx.affiliateId, 2);
+export async function saveSection11(data: Section11Data, selectedProgramId?: string): Promise<Record<number, CompletionStatus>> {
+  const ctx = await getSessionContext(selectedProgramId);
+  await assertPhaseNotSubmitted(ctx.affiliateId, 1);
 
-  if (!ctx.programId) return getCompletionStatuses(ctx.affiliateId);
+  if (!ctx.programId) return getCompletionStatuses(ctx.affiliateId, ctx.programId ?? undefined);
 
   // Flatten categories into SubService records
   const records: { programId: string; serviceType: string; subType: string; selected: boolean }[] = [];
@@ -64,5 +64,5 @@ export async function saveSection11(data: Section11Data): Promise<Record<number,
   ]);
 
   await writeSectionSnapshot(11, data, ctx.userId, ctx.affiliateId, ctx.programId);
-  return getCompletionStatuses(ctx.affiliateId);
+  return getCompletionStatuses(ctx.affiliateId, ctx.programId ?? undefined);
 }

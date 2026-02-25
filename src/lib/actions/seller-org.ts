@@ -72,7 +72,7 @@ export async function saveSellerOrgInfo(
 export async function computeSellerStatuses(
   affiliateId: string
 ): Promise<Record<SellerSectionId, CompletionStatus>> {
-  const [profile, sellerLocations, sellerProviders, offerings, sellerLab, flows] = await Promise.all([
+  const [profile, sellerLocations, sellerProviders, offerings, sellerLab, flows, orgSubServices] = await Promise.all([
     prisma.sellerProfile.findUnique({ where: { affiliateId } }),
     prisma.sellerLocation.findMany({
       where: { affiliateId },
@@ -85,9 +85,13 @@ export async function computeSellerStatuses(
     prisma.sellerServiceOffering.findMany({ where: { affiliateId } }),
     prisma.sellerLabNetwork.findFirst({ where: { affiliateId } }),
     prisma.onboardingFlow.findFirst({ where: { affiliateId, flowType: "SELLER" } }),
+    prisma.sellerOrgSubService.findMany({
+      where: { affiliateId, selected: true },
+      select: { unitPrice: true },
+    }),
   ]);
 
-  const empty: Record<SellerSectionId, CompletionStatus> = { "S-1": "not_started", "S-2": "not_started", "S-3": "not_started", "S-4": "not_started", "S-5": "not_started", "S-6": "not_started", "S-R": "not_started" };
+  const empty: Record<SellerSectionId, CompletionStatus> = { "S-1": "not_started", "S-2": "not_started", "S-3": "not_started", "S-4": "not_started", "S-5": "not_started", "S-6": "not_started", "S-7": "not_started", "S-R": "not_started" };
 
   // S-1: Org Info (from SellerProfile)
   const orgFields = [profile?.legalName, profile?.adminContactName, profile?.adminContactEmail];
@@ -102,9 +106,29 @@ export async function computeSellerStatuses(
   const completeProvs = sellerProviders.filter((p) => p.firstName && p.lastName && p.npi && p.licenseNumber);
   const s3: CompletionStatus = sellerProviders.length === 0 ? "not_started" : completeProvs.length === sellerProviders.length ? "complete" : "in_progress";
 
-  // S-4: Services Offered
+  // S-4: Services Offered — requires clinic_visit
   const selectedOfferings = offerings.filter((o) => o.selected);
-  const s4: CompletionStatus = offerings.length === 0 ? "not_started" : selectedOfferings.length > 0 ? "complete" : "in_progress";
+  const hasCareService = selectedOfferings.some((o) => o.serviceType === "clinic_visit");
+  const s4: CompletionStatus = offerings.length === 0 ? "not_started" : (selectedOfferings.length > 0 && hasCareService) ? "complete" : "in_progress";
+
+  // S-7: Price List — all selected care services must have visit prices AND all selected sub-services must have unitPrice
+  const careOfferings = offerings.filter(
+    (o) => o.selected && o.serviceType === "clinic_visit"
+  );
+  const visitsPriced = careOfferings.filter((o) => o.basePricePerVisit != null).length;
+  const visitsTotal = careOfferings.length;
+  const subsPriced = orgSubServices.filter((s) => s.unitPrice != null).length;
+  const subsTotal = orgSubServices.length;
+  const totalPriced = visitsPriced + subsPriced;
+  const totalItems = visitsTotal + subsTotal;
+  let s7: CompletionStatus = "not_started";
+  if (totalItems > 0) {
+    if (totalPriced === totalItems) {
+      s7 = "complete";
+    } else if (totalPriced > 0) {
+      s7 = "in_progress";
+    }
+  }
 
   // S-5: Lab Network (from SellerLabNetwork)
   const s5: CompletionStatus = !sellerLab
@@ -123,8 +147,8 @@ export async function computeSellerStatuses(
         : "not_started";
 
   // S-R: Review
-  const allComplete = [s1, s2, s3, s4, s5, s6].every((s) => s === "complete");
+  const allComplete = [s1, s2, s3, s4, s5, s6, s7].every((s) => s === "complete");
   const sR: CompletionStatus = flows?.status === "SUBMITTED" ? "complete" : allComplete ? "in_progress" : "not_started";
 
-  return { "S-1": s1, "S-2": s2, "S-3": s3, "S-4": s4, "S-5": s5, "S-6": s6, "S-R": sR };
+  return { "S-1": s1, "S-2": s2, "S-3": s3, "S-4": s4, "S-5": s5, "S-6": s6, "S-7": s7, "S-R": sR };
 }

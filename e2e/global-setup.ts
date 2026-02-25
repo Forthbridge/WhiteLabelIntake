@@ -1,5 +1,5 @@
 import { request } from "@playwright/test";
-import { seedTestData, disconnect } from "./fixtures/test-data";
+import { seedTestData, teardownTestData, disconnect } from "./fixtures/test-data";
 import path from "path";
 import fs from "fs";
 
@@ -41,6 +41,14 @@ async function authenticate(
 
 async function globalSetup() {
   console.log("[e2e] Running global setup...");
+
+  // Defensive cleanup: tear down any leftover data from a previous run
+  // that may have crashed before teardown completed
+  try {
+    await teardownTestData();
+  } catch {
+    // Ignore errors — there may be nothing to tear down
+  }
 
   // Seed test data
   try {

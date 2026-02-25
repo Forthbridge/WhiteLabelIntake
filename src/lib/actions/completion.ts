@@ -24,7 +24,7 @@ export async function getCompletionStatuses(affiliateId: string, programId?: str
 
   const program = programId
     ? await prisma.program.findFirst({ where: { id: programId, affiliateId } })
-    : await prisma.program.findFirst({ where: { affiliateId } });
+    : await prisma.program.findFirst({ where: { affiliateId }, orderBy: { createdAt: "asc" } });
 
   // Section 1: Client & Program Overview
   if (program) {

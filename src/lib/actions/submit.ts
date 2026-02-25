@@ -45,5 +45,20 @@ export async function submitPhase(phaseNumber: number) {
     return submitForm();
   }
 
+  if (phaseNumber === 2) {
+    // Phase 2: Service Configuration (Section 11 + 12)
+    const statuses = await getCompletionStatuses(ctx.affiliateId, ctx.programId ?? undefined);
+    if (statuses[11] !== "complete") {
+      throw new Error("Cannot submit Phase 2: Section 11 (Service Configuration) is incomplete");
+    }
+
+    await prisma.affiliatePhase.upsert({
+      where: { affiliateId_phase: { affiliateId: ctx.affiliateId, phase: 2 } },
+      update: { status: "SUBMITTED", submittedAt: new Date() },
+      create: { affiliateId: ctx.affiliateId, phase: 2, status: "SUBMITTED", submittedAt: new Date(), unlockedAt: new Date() },
+    });
+    return;
+  }
+
   throw new Error(`Unknown phase: ${phaseNumber}`);
 }

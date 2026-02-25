@@ -722,13 +722,13 @@ export async function loadSellerPricing(contractId: string, selectedProgramId?: 
     locationCount,
     services: offerings.map((o) => ({
       serviceType: o.serviceType,
-      price: o.basePricePerVisit ? Number(o.basePricePerVisit) : null,
+      price: o.basePricePerVisit != null ? Number(o.basePricePerVisit) : null,
     })),
     subServicePrices: orgSubs.map((s) => ({
       serviceType: s.serviceType,
       subType: s.subType,
       label: s.subType, // label resolved client-side via SUB_SERVICE_TYPES
-      unitPrice: s.unitPrice ? Number(s.unitPrice) : null,
+      unitPrice: s.unitPrice != null ? Number(s.unitPrice) : null,
     })),
   };
 }
@@ -819,13 +819,13 @@ export async function loadLocationPricingReview(
 
   if (priceListData && effectivePriceListId) {
     for (const v of priceListData.visitPrices) {
-      visitPriceMap.set(v.serviceType, v.pricePerVisit ? Number(v.pricePerVisit) : null);
+      visitPriceMap.set(v.serviceType, v.pricePerVisit != null ? Number(v.pricePerVisit) : null);
     }
     for (const s of priceListData.subPrices) {
       subServiceSources.push({
         serviceType: s.serviceType,
         subType: s.subType,
-        unitPrice: s.unitPrice ? Number(s.unitPrice) : null,
+        unitPrice: s.unitPrice != null ? Number(s.unitPrice) : null,
       });
     }
   } else {
@@ -835,7 +835,7 @@ export async function loadLocationPricingReview(
       select: { serviceType: true, basePricePerVisit: true },
     });
     for (const o of orgOfferings) {
-      visitPriceMap.set(o.serviceType, o.basePricePerVisit ? Number(o.basePricePerVisit) : null);
+      visitPriceMap.set(o.serviceType, o.basePricePerVisit != null ? Number(o.basePricePerVisit) : null);
     }
     const orgSubServices = await prisma.sellerOrgSubService.findMany({
       where: { affiliateId: contract.sellerId, selected: true },
@@ -846,7 +846,7 @@ export async function loadLocationPricingReview(
       subServiceSources.push({
         serviceType: s.serviceType,
         subType: s.subType,
-        unitPrice: s.unitPrice ? Number(s.unitPrice) : null,
+        unitPrice: s.unitPrice != null ? Number(s.unitPrice) : null,
       });
     }
   }
@@ -872,12 +872,12 @@ export async function loadLocationPricingReview(
     for (const v of priceListData.visitPrices) {
       if (v.sellerLocationId == null) continue;
       if (!locVisitOverrides.has(v.sellerLocationId)) locVisitOverrides.set(v.sellerLocationId, new Map());
-      locVisitOverrides.get(v.sellerLocationId)!.set(v.serviceType, v.pricePerVisit ? Number(v.pricePerVisit) : null);
+      locVisitOverrides.get(v.sellerLocationId)!.set(v.serviceType, v.pricePerVisit != null ? Number(v.pricePerVisit) : null);
     }
     for (const s of priceListData.subPrices) {
       if (s.sellerLocationId == null) continue;
       if (!locSubOverrides.has(s.sellerLocationId)) locSubOverrides.set(s.sellerLocationId, new Map());
-      locSubOverrides.get(s.sellerLocationId)!.set(`${s.serviceType}:${s.subType}`, s.unitPrice ? Number(s.unitPrice) : null);
+      locSubOverrides.get(s.sellerLocationId)!.set(`${s.serviceType}:${s.subType}`, s.unitPrice != null ? Number(s.unitPrice) : null);
     }
   }
 
@@ -1018,13 +1018,13 @@ export async function loadBulkPricingReview(
 
   if (priceListData && effectivePriceListId) {
     for (const v of priceListData.visitPrices) {
-      visitPriceMap.set(v.serviceType, v.pricePerVisit ? Number(v.pricePerVisit) : null);
+      visitPriceMap.set(v.serviceType, v.pricePerVisit != null ? Number(v.pricePerVisit) : null);
     }
     for (const s of priceListData.subPrices) {
       subServiceSources.push({
         serviceType: s.serviceType,
         subType: s.subType,
-        unitPrice: s.unitPrice ? Number(s.unitPrice) : null,
+        unitPrice: s.unitPrice != null ? Number(s.unitPrice) : null,
       });
     }
   } else {
@@ -1033,7 +1033,7 @@ export async function loadBulkPricingReview(
       select: { serviceType: true, basePricePerVisit: true },
     });
     for (const o of orgOfferings) {
-      visitPriceMap.set(o.serviceType, o.basePricePerVisit ? Number(o.basePricePerVisit) : null);
+      visitPriceMap.set(o.serviceType, o.basePricePerVisit != null ? Number(o.basePricePerVisit) : null);
     }
     const orgSubServices = await prisma.sellerOrgSubService.findMany({
       where: { affiliateId: contract.sellerId, selected: true },
@@ -1044,7 +1044,7 @@ export async function loadBulkPricingReview(
       subServiceSources.push({
         serviceType: s.serviceType,
         subType: s.subType,
-        unitPrice: s.unitPrice ? Number(s.unitPrice) : null,
+        unitPrice: s.unitPrice != null ? Number(s.unitPrice) : null,
       });
     }
   }
@@ -1094,12 +1094,12 @@ export async function loadBulkPricingReview(
     for (const v of priceListData.visitPrices) {
       if (v.sellerLocationId == null) continue;
       if (!locVisitOverrides.has(v.sellerLocationId)) locVisitOverrides.set(v.sellerLocationId, new Map());
-      locVisitOverrides.get(v.sellerLocationId)!.set(v.serviceType, v.pricePerVisit ? Number(v.pricePerVisit) : null);
+      locVisitOverrides.get(v.sellerLocationId)!.set(v.serviceType, v.pricePerVisit != null ? Number(v.pricePerVisit) : null);
     }
     for (const s of priceListData.subPrices) {
       if (s.sellerLocationId == null) continue;
       if (!locSubOverrides.has(s.sellerLocationId)) locSubOverrides.set(s.sellerLocationId, new Map());
-      locSubOverrides.get(s.sellerLocationId)!.set(`${s.serviceType}:${s.subType}`, s.unitPrice ? Number(s.unitPrice) : null);
+      locSubOverrides.get(s.sellerLocationId)!.set(`${s.serviceType}:${s.subType}`, s.unitPrice != null ? Number(s.unitPrice) : null);
     }
   }
 

@@ -50,26 +50,21 @@ export async function submitSellerFlow(): Promise<void> {
       where: { affiliateId: ctx.affiliateId },
       select: { id: true },
     });
-    for (const prog of programs) {
-      const existing = await prisma.networkContract.findFirst({
-        where: { affiliateId: ctx.affiliateId, sellerId: ctx.affiliateId, programId: prog.id },
+    if (programs.length > 0) {
+      await prisma.networkContract.createMany({
+        data: programs.map((prog) => ({
+          affiliateId: ctx.affiliateId,
+          sellerId: ctx.affiliateId,
+          programId: prog.id,
+        })),
+        skipDuplicates: true,
       });
-      if (!existing) {
-        await prisma.networkContract.create({
-          data: { affiliateId: ctx.affiliateId, sellerId: ctx.affiliateId, programId: prog.id },
-        });
-      }
-    }
-    // Also handle legacy null-program contract if no programs exist
-    if (programs.length === 0) {
-      const existing = await prisma.networkContract.findFirst({
-        where: { affiliateId: ctx.affiliateId, sellerId: ctx.affiliateId, programId: null },
+    } else {
+      // Legacy null-program contract if no programs exist
+      await prisma.networkContract.createMany({
+        data: [{ affiliateId: ctx.affiliateId, sellerId: ctx.affiliateId }],
+        skipDuplicates: true,
       });
-      if (!existing) {
-        await prisma.networkContract.create({
-          data: { affiliateId: ctx.affiliateId, sellerId: ctx.affiliateId },
-        });
-      }
     }
   }
 }

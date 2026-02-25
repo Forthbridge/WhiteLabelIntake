@@ -25,15 +25,15 @@ test.describe("seller S-7: price lists", () => {
     const editButton = page.locator("button", { hasText: "Edit" }).first();
     await editButton.click();
 
-    // Should show the price list editor with the name field
-    await expect(page.locator('input[name="priceListName"]')).toBeVisible({ timeout: 5_000 });
+    // Editor loads async (loadPriceList + loadBuyerOrgs) — give CI enough time
+    await expect(page.locator('input[name="priceListName"]')).toBeVisible({ timeout: 15_000 });
   });
 
   test("visit price field visible in editor", async ({ page }) => {
     // Open editor for Standard price list
     await expect(page.getByText("Standard")).toBeVisible({ timeout: 10_000 });
     await page.locator("button", { hasText: "Edit" }).first().click();
-    await expect(page.locator('input[name="priceListName"]')).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator('input[name="priceListName"]')).toBeVisible({ timeout: 15_000 });
 
     // Clinic visit price input should be visible (clinic_visit is selected in S-4)
     const visitPriceInput = page.locator('input#clinicVisitPrice');

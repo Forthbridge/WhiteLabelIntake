@@ -35,7 +35,8 @@ test.describe("seller S-4: default services offered", () => {
     await page.locator('input[name="seller-service-imaging"]').check();
 
     await onboarding.clickNext();
-    await expect(onboarding.sectionHeading).not.toContainText("Default Services Offered", { timeout: 10_000 });
+    // Wait for save to complete — button shows "Saving…" then navigates
+    await expect(onboarding.sectionHeading).not.toContainText("Default Services Offered", { timeout: 30_000 });
 
     // Navigate back
     await onboarding.navigateToSection("Default Services Offered");

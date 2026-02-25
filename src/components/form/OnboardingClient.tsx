@@ -120,6 +120,11 @@ export interface SellerFlowData {
   flowStatus: string;
 }
 
+export interface ProgramInfo {
+  id: string;
+  programName: string | null;
+}
+
 interface OnboardingClientProps {
   sectionData: AllSectionData;
   initialStatuses: Record<number, CompletionStatus>;
@@ -130,9 +135,11 @@ interface OnboardingClientProps {
   networkLocationCount?: number;
   sectionReviews?: SectionReviewRow[];
   sellerData?: SellerFlowData;
+  programs?: ProgramInfo[];
+  allProgramData?: Record<string, AllSectionData>;
 }
 
-export function OnboardingClient({ sectionData, initialStatuses, affiliateId, formStatus, phases, roles, networkLocationCount, sectionReviews, sellerData }: OnboardingClientProps) {
+export function OnboardingClient({ sectionData, initialStatuses, affiliateId, formStatus, phases, roles, networkLocationCount, sectionReviews, sellerData, programs, allProgramData }: OnboardingClientProps) {
   return (
     <CompletionProvider
       initialStatuses={initialStatuses}
@@ -146,9 +153,21 @@ export function OnboardingClient({ sectionData, initialStatuses, affiliateId, fo
         networkLocationCount={networkLocationCount ?? 0}
         sectionReviews={sectionReviews ?? []}
         sellerData={sellerData}
+        programs={programs ?? []}
+        allProgramData={allProgramData ?? {}}
       />
     </CompletionProvider>
   );
+}
+
+/* ── Selected Program context ──
+   Exposes the selected programId to child components (forms, nav buttons)
+   so they can pass it to server actions. */
+const SelectedProgramCtx = createContext<string | null>(null);
+
+/** Returns the currently selected programId from the plan selector. */
+export function useSelectedProgram() {
+  return useContext(SelectedProgramCtx);
 }
 
 function OnboardingClientInner({
@@ -157,12 +176,16 @@ function OnboardingClientInner({
   networkLocationCount,
   sectionReviews,
   sellerData,
+  programs,
+  allProgramData,
 }: {
   sectionData: AllSectionData;
   roles: RoleFlags;
   networkLocationCount: number;
   sectionReviews: SectionReviewRow[];
   sellerData?: SellerFlowData;
+  programs: ProgramInfo[];
+  allProgramData: Record<string, AllSectionData>;
 }) {
   const isDualRole = roles.isAffiliate && roles.isSeller;
   const defaultFlow: FlowType = roles.isAffiliate ? "AFFILIATE" : "SELLER";
@@ -170,7 +193,10 @@ function OnboardingClientInner({
   const [activeFlow, setActiveFlow] = useState<FlowType>(defaultFlow);
   const [activeSection, setActiveSection] = useState(1);
   const [activeSellerSection, setActiveSellerSection] = useState<SellerSectionId>("S-1");
+  const [programList, setProgramList] = useState<ProgramInfo[]>(programs);
+  const [selectedProgramId, setSelectedProgramId] = useState<string | null>(programs[0]?.id ?? null);
   const [cache, setCache] = useState<AllSectionData>(sectionData);
+  const [programDataCache, setProgramDataCache] = useState<Record<string, AllSectionData>>(allProgramData);
   const [isSaving, setIsSaving] = useState(false);
   const [dirtySections, setDirtySections] = useState<Record<string | number, boolean>>({});
   const [sellerStatuses, setSellerStatuses] = useState<Record<SellerSectionId, CompletionStatus>>(
@@ -218,6 +244,28 @@ function OnboardingClientInner({
     window.scrollTo({ top: 0, behavior: "instant" });
   }, []);
 
+  const handlePlanChange = useCallback((programId: string) => {
+    // Save current plan data to cache before switching
+    if (selectedProgramId) {
+      setProgramDataCache((prev) => ({ ...prev, [selectedProgramId]: cache }));
+    }
+    setSelectedProgramId(programId);
+    // Load cached data for new plan
+    const planData = programDataCache[programId];
+    if (planData) {
+      setCache(planData);
+    }
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }, [selectedProgramId, cache, programDataCache]);
+
+  const handleProgramListUpdate = useCallback((newPrograms: ProgramInfo[]) => {
+    setProgramList(newPrograms);
+  }, []);
+
+  const handleProgramDataUpdate = useCallback((programId: string, data: AllSectionData) => {
+    setProgramDataCache((prev) => ({ ...prev, [programId]: data }));
+  }, []);
+
   // ─── Affiliate flow rendering ─────────────────────────────────
 
   const meta = getSectionMeta(activeSection);
@@ -226,12 +274,16 @@ function OnboardingClientInner({
   const visibleSections = getVisibleSections(unlockedPhases);
 
   function renderAffiliateSection() {
+    // Key by selectedProgramId forces remount when switching plans,
+    // ensuring useState re-initializes with the new plan's data.
+    const planKey = selectedProgramId ?? "default";
     switch (activeSection) {
       case 1:
-        return <Section1Form initialData={cache[1]} onNavigate={handleNavigate} disabled={locked} />;
+        return <Section1Form key={planKey} initialData={cache[1]} onNavigate={handleNavigate} disabled={locked} />;
       case 2:
         return (
           <PlanDefinitionForm
+            key={planKey}
             initialSection2Data={cache[2]}
             initialSection3Data={cache[3]}
             initialSection9Data={cache[9]}
@@ -241,9 +293,9 @@ function OnboardingClientInner({
           />
         );
       case 4:
-        return <Section4Form initialData={cache[4]} onNavigate={handleNavigate} disabled={locked} />;
+        return <Section4Form key={planKey} initialData={cache[4]} onNavigate={handleNavigate} disabled={locked} />;
       case 5:
-        return <NetworkBuilderForm onNavigate={handleNavigate} disabled={locked} />;
+        return <NetworkBuilderForm key={planKey} onNavigate={handleNavigate} disabled={locked} programId={selectedProgramId} />;
       case 10:
         return <ReviewForm data={cache} networkLocationCount={networkLocationCount} initialSectionReviews={sectionReviews} onNavigate={handleNavigate} />;
       default:
@@ -284,7 +336,6 @@ function OnboardingClientInner({
             sellerServiceOfferings={sellerServices.services}
             locationServices={sellerCache?.locationServices}
             orgSubServices={sellerCache?.orgSubServices}
-            orgPricing={sellerCache?.pricing}
             onNavigate={handleSellerNavigate}
             onStatusUpdate={handleSellerStatusUpdate}
             disabled={sellerLocked}
@@ -317,6 +368,7 @@ function OnboardingClientInner({
             initialData={sellerCache?.pricing ?? defaultPricing}
             serviceSelections={sellerServices.services}
             orgSubServices={sellerCache?.orgSubServices}
+            sellerLocations={(sellerCache?.locations ?? []).filter((l) => l.id).map((l) => ({ id: l.id!, locationName: l.locationName ?? "" }))}
             onNavigate={handleSellerNavigate}
             onStatusUpdate={handleSellerStatusUpdate}
             disabled={sellerLocked}
@@ -359,6 +411,7 @@ function OnboardingClientInner({
   const activeSectionIndex = visibleSections.findIndex((s) => s.id === activeSection) + 1;
 
   return (
+    <SelectedProgramCtx.Provider value={selectedProgramId}>
     <SavingCtx.Provider value={setIsSaving}>
     <DirtyCtx.Provider value={reportDirty}>
     <SectionCacheCtx.Provider value={updateCache}>
@@ -407,6 +460,11 @@ function OnboardingClientInner({
               unlockedPhases={unlockedPhases}
               phaseStatuses={phaseStatuses}
               dirtySections={dirtySections}
+              programs={programList}
+              selectedProgramId={selectedProgramId}
+              onPlanChange={handlePlanChange}
+              onProgramListUpdate={handleProgramListUpdate}
+              onProgramDataUpdate={handleProgramDataUpdate}
             />
             <main className="flex-1 overflow-y-auto">
               <div className="max-w-3xl mx-auto px-6 py-10">
@@ -479,5 +537,6 @@ function OnboardingClientInner({
     </SectionCacheCtx.Provider>
     </DirtyCtx.Provider>
     </SavingCtx.Provider>
+    </SelectedProgramCtx.Provider>
   );
 }

@@ -106,14 +106,14 @@ export async function computeSellerStatuses(
   const completeProvs = sellerProviders.filter((p) => p.firstName && p.lastName && p.npi && p.licenseNumber);
   const s3: CompletionStatus = sellerProviders.length === 0 ? "not_started" : completeProvs.length === sellerProviders.length ? "complete" : "in_progress";
 
-  // S-4: Services Offered — requires at least one of primary_care or urgent_care
+  // S-4: Services Offered — requires clinic_visit
   const selectedOfferings = offerings.filter((o) => o.selected);
-  const hasCareService = selectedOfferings.some((o) => o.serviceType === "primary_care" || o.serviceType === "urgent_care");
+  const hasCareService = selectedOfferings.some((o) => o.serviceType === "clinic_visit");
   const s4: CompletionStatus = offerings.length === 0 ? "not_started" : (selectedOfferings.length > 0 && hasCareService) ? "complete" : "in_progress";
 
   // S-7: Price List — all selected care services must have visit prices AND all selected sub-services must have unitPrice
   const careOfferings = offerings.filter(
-    (o) => o.selected && (o.serviceType === "primary_care" || o.serviceType === "urgent_care")
+    (o) => o.selected && o.serviceType === "clinic_visit"
   );
   const visitsPriced = careOfferings.filter((o) => o.basePricePerVisit != null).length;
   const visitsTotal = careOfferings.length;

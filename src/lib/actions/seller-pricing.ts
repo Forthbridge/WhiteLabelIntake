@@ -16,7 +16,7 @@ export async function loadSellerPricing(): Promise<SellerPricingData> {
     prisma.sellerServiceOffering.findMany({
       where: {
         affiliateId: ctx.affiliateId,
-        serviceType: { in: ["primary_care", "urgent_care"] },
+        serviceType: "clinic_visit",
         selected: true,
       },
       select: { serviceType: true, basePricePerVisit: true },

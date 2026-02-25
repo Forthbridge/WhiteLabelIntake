@@ -148,7 +148,7 @@ export async function saveSection5(data: Section5Data): Promise<SaveSection5Resu
   const locationsWithIds = data.locations.map((l, i) => ({ ...l, id: locationIds[i] }));
   await writeSectionSnapshot(5, { defaultSchedulingSystem: data.defaultSchedulingSystem, locations: locationsWithIds }, ctx.userId, ctx.affiliateId);
 
-  const statuses = await getCompletionStatuses(ctx.affiliateId);
+  const statuses = await getCompletionStatuses(ctx.affiliateId, ctx.programId ?? undefined);
   return { statuses, locationIds };
 }
 

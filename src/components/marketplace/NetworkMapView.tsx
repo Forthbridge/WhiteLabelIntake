@@ -106,6 +106,7 @@ function MapSellerMultiSelect({
 
 interface Props {
   locations: NetworkLocationItem[];
+  contracts?: { contractId: string; sellerId: string; priceListId?: string | null }[];
   searchQuery: string;
   serviceFilter: string;
   stateFilter: string;
@@ -117,10 +118,14 @@ interface Props {
   affiliateOrgId?: string;
   onAddLocation?: (location: NetworkLocationItem) => void;
   onRemoveLocation?: (location: NetworkLocationItem) => void;
+  onAddAllFromSeller?: (sellerOrgId: string) => void;
+  onRemoveAllFromSeller?: (sellerOrgId: string) => void;
+  onChangePriceList?: (sellerOrgId: string, contractId: string) => void;
 }
 
 export function NetworkMapView({
   locations,
+  contracts,
   searchQuery,
   serviceFilter,
   stateFilter,
@@ -132,6 +137,9 @@ export function NetworkMapView({
   affiliateOrgId,
   onAddLocation,
   onRemoveLocation,
+  onAddAllFromSeller,
+  onRemoveAllFromSeller,
+  onChangePriceList,
 }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapRef>(null);
@@ -321,61 +329,154 @@ export function NetworkMapView({
     );
   }
 
+  // Group network items by seller for "Remove All" headers
+  const networkItems = allListItems.filter((l) => l.included);
+  const networkBySellerMap: Record<string, { name: string; isSelfOwned: boolean; locs: NetworkLocationItem[] }> = {};
+  for (const loc of networkItems) {
+    if (!networkBySellerMap[loc.sellerOrgId]) {
+      networkBySellerMap[loc.sellerOrgId] = { name: loc.sellerOrgName || "Unknown", isSelfOwned: loc.isSelfOwned, locs: [] };
+    }
+    networkBySellerMap[loc.sellerOrgId].locs.push(loc);
+  }
+  const networkSellers = Object.entries(networkBySellerMap).sort((a, b) => a[1].name.localeCompare(b[1].name));
+
+  // Group marketplace items by seller for "Add All" headers
+  const marketplaceItems = allListItems.filter((l) => !l.included && !l.isSelfOwned);
+  const marketplaceBySellerMap: Record<string, { name: string; locs: NetworkLocationItem[] }> = {};
+  for (const loc of marketplaceItems) {
+    if (!marketplaceBySellerMap[loc.sellerOrgId]) {
+      marketplaceBySellerMap[loc.sellerOrgId] = { name: loc.sellerOrgName || "Unknown", locs: [] };
+    }
+    marketplaceBySellerMap[loc.sellerOrgId].locs.push(loc);
+  }
+  const marketplaceSellers = Object.entries(marketplaceBySellerMap).sort((a, b) => a[1].name.localeCompare(b[1].name));
+
+  const renderListItem = (loc: NetworkLocationItem) => {
+    const isAvailable = !loc.included && !loc.isSelfOwned;
+    return (
+      <div
+        key={loc.id}
+        data-loc-id={loc.id}
+        className={`p-3 border-b cursor-pointer transition-colors ${
+          isAvailable ? "border-amber-200 bg-amber-50/30" : "border-border/30"
+        } ${
+          hoveredId === loc.id || selectedId === loc.id
+            ? "bg-brand-teal/5"
+            : "hover:bg-surface-hover"
+        }`}
+        onMouseEnter={() => handleListHover(loc.id)}
+        onMouseLeave={() => handleListHover(null)}
+        onClick={() => handleListClick(loc.id)}
+      >
+        <div className="flex justify-between items-start">
+          <p className="text-sm font-medium text-foreground truncate">{loc.locationName || "Unnamed"}</p>
+          <div className="flex items-center gap-1 flex-shrink-0 ml-1">
+            {loc.isSelfOwned && (
+              <span className="text-[9px] font-medium bg-brand-teal/10 text-brand-teal px-1 py-0.5 rounded">
+                Yours
+              </span>
+            )}
+            {loc.included && !loc.isSelfOwned && (
+              <span className="text-[9px] font-medium bg-blue-100 text-blue-700 px-1 py-0.5 rounded">
+                Affiliate
+              </span>
+            )}
+            {isAvailable && (
+              <span className="text-[9px] font-medium bg-amber-100 text-amber-700 px-1 py-0.5 rounded">
+                Available
+              </span>
+            )}
+          </div>
+        </div>
+        <p className="text-xs text-muted truncate">{loc.sellerOrgName}</p>
+        <p className="text-xs text-muted truncate">
+          {[loc.streetAddress, loc.city, loc.state].filter(Boolean).join(", ")}
+        </p>
+        {loc.services.length > 0 && (
+          <p className="text-[10px] text-muted mt-0.5 truncate">
+            {loc.services.slice(0, 3).join(" \u00B7 ")}
+            {loc.services.length > 3 ? ` +${loc.services.length - 3}` : ""}
+          </p>
+        )}
+        {!loc.latitude && (
+          <p className="text-[10px] text-amber-500 mt-0.5">No coordinates</p>
+        )}
+      </div>
+    );
+  };
+
   const renderListPanel = () => (
     <div ref={listRef} className="w-72 flex-shrink-0 overflow-y-auto border-r border-border/50 bg-surface">
-      {allListItems.map((loc) => {
-        const isAvailable = !loc.included && !loc.isSelfOwned;
-        return (
-          <div
-            key={loc.id}
-            data-loc-id={loc.id}
-            className={`p-3 border-b cursor-pointer transition-colors ${
-              isAvailable ? "border-amber-200 bg-amber-50/30" : "border-border/30"
-            } ${
-              hoveredId === loc.id || selectedId === loc.id
-                ? "bg-brand-teal/5"
-                : "hover:bg-surface-hover"
-            }`}
-            onMouseEnter={() => handleListHover(loc.id)}
-            onMouseLeave={() => handleListHover(null)}
-            onClick={() => handleListClick(loc.id)}
-          >
-            <div className="flex justify-between items-start">
-              <p className="text-sm font-medium text-foreground truncate">{loc.locationName || "Unnamed"}</p>
-              <div className="flex items-center gap-1 flex-shrink-0 ml-1">
-                {loc.isSelfOwned && (
-                  <span className="text-[9px] font-medium bg-brand-teal/10 text-brand-teal px-1 py-0.5 rounded">
-                    Yours
-                  </span>
-                )}
-                {loc.included && !loc.isSelfOwned && (
-                  <span className="text-[9px] font-medium bg-blue-100 text-blue-700 px-1 py-0.5 rounded">
-                    Affiliate
-                  </span>
-                )}
-                {isAvailable && (
-                  <span className="text-[9px] font-medium bg-amber-100 text-amber-700 px-1 py-0.5 rounded">
-                    Available
-                  </span>
+      {/* Network locations — grouped by seller */}
+      {networkSellers.map(([sellerOrgId, { name, isSelfOwned, locs }]) => (
+        <div key={sellerOrgId}>
+          {/* Seller group header (show when multiple sellers or non-self-owned with >1 loc) */}
+          {(networkSellers.length > 1 || (!isSelfOwned && locs.length > 1)) && (
+            <div className="px-3 py-1.5 bg-surface border-b border-border/30 flex justify-between items-center">
+              <p className="text-[10px] font-medium text-foreground truncate">
+                {name} ({locs.length})
+              </p>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {onChangePriceList && !isSelfOwned && (() => {
+                  const contract = contracts?.find(c => c.sellerId === sellerOrgId);
+                  return contract?.priceListId ? (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); onChangePriceList(sellerOrgId, contract.contractId); }}
+                      className="text-[9px] font-medium text-brand-teal hover:underline flex-shrink-0"
+                    >
+                      Change Price List
+                    </button>
+                  ) : null;
+                })()}
+                {onRemoveAllFromSeller && !isSelfOwned && locs.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); onRemoveAllFromSeller(sellerOrgId); }}
+                    className="text-[9px] font-medium text-error hover:text-error/80 underline underline-offset-2 flex-shrink-0"
+                  >
+                    Remove All
+                  </button>
                 )}
               </div>
             </div>
-            <p className="text-xs text-muted truncate">{loc.sellerOrgName}</p>
-            <p className="text-xs text-muted truncate">
-              {[loc.streetAddress, loc.city, loc.state].filter(Boolean).join(", ")}
-            </p>
-            {loc.services.length > 0 && (
-              <p className="text-[10px] text-muted mt-0.5 truncate">
-                {loc.services.slice(0, 3).join(" \u00B7 ")}
-                {loc.services.length > 3 ? ` +${loc.services.length - 3}` : ""}
+          )}
+          {locs.map(renderListItem)}
+        </div>
+      ))}
+
+      {/* Marketplace locations grouped by seller */}
+      {marketplaceSellers.length > 0 && (
+        <>
+          {networkItems.length > 0 && (
+            <div className="px-3 py-2 bg-amber-50 border-b border-amber-200">
+              <p className="text-[10px] font-semibold text-amber-700 uppercase tracking-wide">
+                Available to Add ({marketplaceItems.length})
               </p>
-            )}
-            {!loc.latitude && (
-              <p className="text-[10px] text-amber-500 mt-0.5">No coordinates</p>
-            )}
-          </div>
-        );
-      })}
+            </div>
+          )}
+          {marketplaceSellers.map(([sellerOrgId, { name, locs }]) => (
+            <div key={sellerOrgId}>
+              {/* Seller group header */}
+              <div className="px-3 py-1.5 bg-amber-50/60 border-b border-amber-200/50 flex justify-between items-center">
+                <p className="text-[10px] font-medium text-amber-800 truncate">
+                  {name} ({locs.length})
+                </p>
+                {onAddAllFromSeller && locs.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); onAddAllFromSeller(sellerOrgId); }}
+                    className="text-[9px] font-medium text-amber-700 hover:text-amber-900 underline underline-offset-2 flex-shrink-0"
+                  >
+                    Add All
+                  </button>
+                )}
+              </div>
+              {locs.map(renderListItem)}
+            </div>
+          ))}
+        </>
+      )}
     </div>
   );
 

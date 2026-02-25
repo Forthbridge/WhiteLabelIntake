@@ -33,6 +33,11 @@ interface RoleFlags {
   isSeller: boolean;
 }
 
+interface ProgramInfo {
+  id: string;
+  programName: string | null;
+}
+
 interface OnboardingData {
   sections: AllSectionData;
   statuses: Record<number, CompletionStatus>;
@@ -42,6 +47,8 @@ interface OnboardingData {
   networkLocationCount: number;
   sectionReviews: SectionReviewRow[];
   sellerData?: SellerFlowData;
+  programs: ProgramInfo[];
+  allProgramData?: Record<string, AllSectionData>;
 }
 
 /**
@@ -118,8 +125,8 @@ async function loadOnboardingDataByAffiliateId(affiliateId: string): Promise<Onb
     where: { id: affiliateId },
     include: {
       programs: {
-        take: 1,
         include: { services: true, subServices: true },
+        orderBy: { createdAt: "asc" },
       },
       careNavConfigs: { take: 1 },
       phases: { orderBy: { phase: "asc" } },
@@ -133,6 +140,12 @@ async function loadOnboardingDataByAffiliateId(affiliateId: string): Promise<Onb
 
   const program = affiliate.programs[0] ?? null;
   const cn = affiliate.careNavConfigs[0] ?? null;
+
+  // Build program list for plan selector
+  const programs: ProgramInfo[] = affiliate.programs.map((p) => ({
+    id: p.id,
+    programName: p.programName,
+  }));
 
   // --- Phase data ---
   const phases: PhaseInfo[] = affiliate.phases.map((p) => ({
@@ -274,7 +287,7 @@ async function loadOnboardingDataByAffiliateId(affiliateId: string): Promise<Onb
 
     // Build pricing data from offerings + org sub-services
     const visitPriceOfferings = sellerOfferings.filter(
-      (o) => o.selected && (o.serviceType === "primary_care" || o.serviceType === "urgent_care")
+      (o) => o.selected && o.serviceType === "clinic_visit"
     );
 
     // orgSubServices already loaded — extract selected items with prices
@@ -365,6 +378,63 @@ async function loadOnboardingDataByAffiliateId(affiliateId: string): Promise<Onb
     };
   }
 
+  // Build per-program section data for all programs (enables plan switching)
+  const allProgramData: Record<string, AllSectionData> = {};
+  for (const prog of affiliate.programs) {
+    const progServiceMap = new Map(prog.services.map((s) => [s.serviceType, s]));
+    const progS2: Section2Data = { programName: prog.programName ?? "" };
+    const progS3: Section3Data = {
+      services: SERVICE_TYPES.map((st) => ({
+        serviceType: st.value,
+        selected: progServiceMap.get(st.value)?.selected ?? false,
+        otherName: progServiceMap.get(st.value)?.otherName ?? "",
+      })),
+    };
+
+    const progS4: Section4Data = {
+      w9FilePath: prog.w9FilePath ?? null,
+      achRoutingNumber: prog.achRoutingNumber ? decryptField(prog.achRoutingNumber) : "",
+      achAccountNumber: prog.achAccountNumber ? decryptField(prog.achAccountNumber) : "",
+      achAccountType: (prog.achAccountType as Section4Data["achAccountType"]) ?? null,
+      achAccountHolderName: prog.achAccountHolderName ?? "",
+      bankDocFilePath: prog.bankDocFilePath ?? null,
+      paymentAchAccountHolderName: prog.paymentAchAccountHolderName ?? "",
+      paymentAchAccountType: (prog.paymentAchAccountType as Section4Data["paymentAchAccountType"]) ?? null,
+      paymentAchRoutingNumber: prog.paymentAchRoutingNumber ? decryptField(prog.paymentAchRoutingNumber) : "",
+      paymentAchAccountNumber: prog.paymentAchAccountNumber ? decryptField(prog.paymentAchAccountNumber) : "",
+    };
+
+    // S1 contacts are per-program
+    const progS1: Section1Data = {
+      legalName: affiliate.legalName ?? "",
+      adminContactName: prog.adminContactName ?? "",
+      adminContactEmail: prog.adminContactEmail ?? "",
+      executiveSponsorName: prog.executiveSponsorName ?? "",
+      executiveSponsorEmail: prog.executiveSponsorEmail ?? "",
+      itContactName: prog.itContactName ?? "",
+      itContactEmail: prog.itContactEmail ?? "",
+      itContactPhone: prog.itContactPhone ?? "",
+    };
+
+    // Sub-services per program
+    const progSubServiceMap = new Map(
+      prog.subServices.map((ss) => [`${ss.serviceType}:${ss.subType}`, ss.selected])
+    );
+    const progSelectedServiceTypes = progS3.services.filter((s) => s.selected).map((s) => s.serviceType);
+    const progCategories: Section11Data["categories"] = {};
+    for (const serviceType of progSelectedServiceTypes) {
+      const subItems = SUB_SERVICE_TYPES[serviceType];
+      if (!subItems) continue;
+      progCategories[serviceType] = subItems.map((item) => ({
+        subType: item.value,
+        selected: progSubServiceMap.get(`${serviceType}:${item.value}`) ?? false,
+      }));
+    }
+    const progS11: Section11Data = { categories: progCategories };
+
+    allProgramData[prog.id] = { 1: progS1, 2: progS2, 3: progS3, 4: progS4, 9: s9, 11: progS11 };
+  }
+
   return {
     sections: { 1: s1, 2: s2, 3: s3, 4: s4, 9: s9, 11: s11 },
     statuses,
@@ -377,6 +447,8 @@ async function loadOnboardingDataByAffiliateId(affiliateId: string): Promise<Onb
     networkLocationCount,
     sectionReviews: affiliate.sectionReviews,
     sellerData,
+    programs,
+    allProgramData,
   };
 }
 

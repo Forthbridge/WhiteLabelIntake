@@ -9,8 +9,8 @@ import type { CompletionStatus, SellerSectionId } from "@/types";
 // ─── Load (for a single seller location) ────────────────────────
 
 export interface LocationServiceState {
-  overrides: Array<{ serviceType: string; available: boolean; pricePerVisit: number | null }>;
-  subServices: Array<{ serviceType: string; subType: string; available: boolean; unitPrice: number | null }>;
+  overrides: Array<{ serviceType: string; available: boolean }>;
+  subServices: Array<{ serviceType: string; subType: string; available: boolean }>;
   hasOverrides: boolean;
 }
 
@@ -26,13 +26,11 @@ export async function loadLocationServices(sellerLocationId: string): Promise<Lo
     overrides: configs.map((c) => ({
       serviceType: c.serviceType,
       available: c.available,
-      pricePerVisit: c.pricePerVisit ? Number(c.pricePerVisit) : null,
     })),
     subServices: subs.map((s) => ({
       serviceType: s.serviceType,
       subType: s.subType,
       available: s.available,
-      unitPrice: s.unitPrice ? Number(s.unitPrice) : null,
     })),
     hasOverrides: configs.length > 0 || subs.length > 0,
   };
@@ -63,13 +61,11 @@ export async function loadAllLocationServices(affiliateId: string): Promise<
       overrides: locConfigs.map((c) => ({
         serviceType: c.serviceType,
         available: c.available,
-        pricePerVisit: c.pricePerVisit ? Number(c.pricePerVisit) : null,
       })),
       subServices: locSubs.map((s) => ({
         serviceType: s.serviceType,
         subType: s.subType,
         available: s.available,
-        unitPrice: s.unitPrice ? Number(s.unitPrice) : null,
       })),
       hasOverrides: locConfigs.length > 0 || locSubs.length > 0,
     };
@@ -93,7 +89,7 @@ export async function saveLocationServices(
   });
   if (!location) throw new Error("Seller location not found");
 
-  // Upsert overrides (including pricePerVisit)
+  // Upsert overrides (availability only)
   await Promise.all(
     parsed.overrides.map((o) =>
       prisma.sellerLocationServiceConfig.upsert({
@@ -105,19 +101,17 @@ export async function saveLocationServices(
         },
         update: {
           available: o.available,
-          pricePerVisit: o.pricePerVisit ?? null,
         },
         create: {
           sellerLocationId: parsed.locationId,
           serviceType: o.serviceType,
           available: o.available,
-          pricePerVisit: o.pricePerVisit ?? null,
         },
       })
     )
   );
 
-  // Upsert sub-services (including unitPrice)
+  // Upsert sub-services (availability only)
   await Promise.all(
     parsed.subServices.map((s) =>
       prisma.sellerLocationSubService.upsert({
@@ -130,14 +124,12 @@ export async function saveLocationServices(
         },
         update: {
           available: s.available,
-          unitPrice: s.unitPrice ?? null,
         },
         create: {
           sellerLocationId: parsed.locationId,
           serviceType: s.serviceType,
           subType: s.subType,
           available: s.available,
-          unitPrice: s.unitPrice ?? null,
         },
       })
     )
@@ -188,7 +180,7 @@ export async function initLocationFromOrgDefaults(
     })
   );
 
-  // Copy org sub-service rows to location (including unitPrice)
+  // Copy org sub-service rows to location (availability only)
   const subServiceUpserts = orgSubs.map((sub) =>
     prisma.sellerLocationSubService.upsert({
       where: {
@@ -200,14 +192,12 @@ export async function initLocationFromOrgDefaults(
       },
       update: {
         available: sub.selected,
-        unitPrice: sub.unitPrice,
       },
       create: {
         sellerLocationId,
         serviceType: sub.serviceType,
         subType: sub.subType,
         available: sub.selected,
-        unitPrice: sub.unitPrice,
       },
     })
   );

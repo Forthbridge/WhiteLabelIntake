@@ -62,12 +62,16 @@ export function GroupedToggleGrid({
   subServiceDefs,
   items,
   onToggle,
+  onSelectGroup,
+  onDeselectGroup,
   disabled,
 }: {
   serviceType: string;
   subServiceDefs: SubServiceItem[];
   items: { subType: string; selected: boolean }[];
   onToggle: (subType: string) => void;
+  onSelectGroup?: (group: string) => void;
+  onDeselectGroup?: (group: string) => void;
   disabled?: boolean;
 }) {
   const groups = getGroupsForServiceType(serviceType);
@@ -80,7 +84,19 @@ export function GroupedToggleGrid({
           const groupItems = subServiceDefs.filter((d) => d.group === group);
           return (
             <div key={group} className="mb-4 last:mb-0">
-              <h4 className="text-xs font-semibold uppercase tracking-wider text-muted mb-2">{group}</h4>
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-muted">{group}</h4>
+                {(onSelectGroup || onDeselectGroup) && !disabled && (
+                  <div className="flex gap-2">
+                    {onSelectGroup && (
+                      <button type="button" onClick={() => onSelectGroup(group)} className="text-[11px] text-brand-teal hover:underline">All</button>
+                    )}
+                    {onDeselectGroup && (
+                      <button type="button" onClick={() => onDeselectGroup(group)} className="text-[11px] text-muted hover:underline">None</button>
+                    )}
+                  </div>
+                )}
+              </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
                 {groupItems.map((def) => {
                   const item = items.find((i) => i.subType === def.value);

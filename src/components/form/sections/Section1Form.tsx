@@ -10,18 +10,19 @@ import type { Section1Data } from "@/lib/validations/section1";
 import { useCompletion } from "@/lib/contexts/CompletionContext";
 import { useAdminForm } from "@/lib/contexts/AdminFormContext";
 import { SectionNavButtons } from "../SectionNavButtons";
-import { useSyncSectionCache, useReportDirty } from "../OnboardingClient";
+import { useSyncSectionCache, useReportDirty, useSelectedProgram } from "../OnboardingClient";
 
 export function Section1Form({ initialData, onNavigate, disabled }: { initialData: Section1Data; onNavigate?: (section: number) => void; disabled?: boolean }) {
   const [data, setData] = useState<Section1Data>(initialData);
   useSyncSectionCache(1, data);
   const { updateStatuses } = useCompletion();
   const adminCtx = useAdminForm();
+  const selectedProgramId = useSelectedProgram();
 
   const onSave = useCallback(async (d: Section1Data) => {
     if (adminCtx?.isAdminEditing) return saveSection1ForAffiliate(adminCtx.affiliateId, d);
-    return saveSection1(d);
-  }, [adminCtx]);
+    return saveSection1(d, selectedProgramId ?? undefined);
+  }, [adminCtx, selectedProgramId]);
 
   const { save, isDirty } = useSaveOnNext({ data, onSave, onAfterSave: updateStatuses });
   useReportDirty(1, isDirty);

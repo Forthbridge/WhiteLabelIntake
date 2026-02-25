@@ -7,10 +7,10 @@ import { encryptField } from "@/lib/encryption";
 import type { Section4Data } from "@/lib/validations/section4";
 import type { CompletionStatus } from "@/types";
 
-export async function saveSection4(data: Section4Data): Promise<Record<number, CompletionStatus>> {
-  const ctx = await getSessionContext();
+export async function saveSection4(data: Section4Data, selectedProgramId?: string): Promise<Record<number, CompletionStatus>> {
+  const ctx = await getSessionContext(selectedProgramId);
   await assertNotSubmitted(ctx.affiliateId);
-  if (!ctx.programId) return getCompletionStatuses(ctx.affiliateId);
+  if (!ctx.programId) return getCompletionStatuses(ctx.affiliateId, ctx.programId ?? undefined);
 
   await prisma.program.update({
     where: { id: ctx.programId },
@@ -47,5 +47,5 @@ export async function saveSection4(data: Section4Data): Promise<Record<number, C
     ctx.programId
   );
 
-  return getCompletionStatuses(ctx.affiliateId);
+  return getCompletionStatuses(ctx.affiliateId, ctx.programId ?? undefined);
 }

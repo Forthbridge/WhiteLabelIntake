@@ -12,7 +12,7 @@ import { SectionNavButtons } from "../SectionNavButtons";
 import { useSyncSectionCache, useReportDirty } from "../OnboardingClient";
 
 const DEFAULT_SERVICES = [
-  "Unlimited 24/7 $0 virtual primary care and sick visits",
+  "Unlimited $0 virtual primary care and sick visits",
   "Emotional wellness counseling (12 sessions)",
   "Health coaching (12 sessions)",
   "Care Navigation",

@@ -8,9 +8,11 @@ import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { NetworkListView } from "@/components/marketplace/NetworkListView";
-import { PricingAcceptanceModal } from "@/components/marketplace/PricingAcceptanceModal";
+import { PricingReviewModal } from "@/components/marketplace/PricingReviewModal";
 import { RemoveLocationModal } from "@/components/marketplace/RemoveLocationModal";
-import { loadNetworkData, addLocationTerm, loadSellerPricing } from "@/lib/actions/network";
+import { RemoveAllModal } from "@/components/marketplace/RemoveAllModal";
+import { ChangePriceListModal } from "@/components/marketplace/ChangePriceListModal";
+import { loadNetworkData } from "@/lib/actions/network";
 import type { NetworkLocationItem, NetworkContractSummary } from "@/lib/actions/network";
 import { SERVICE_TYPES } from "@/lib/validations/section3";
 import { SELLER_SERVICE_TYPES } from "@/lib/validations/seller-services";
@@ -108,9 +110,10 @@ function SellerMultiSelect({
 interface Props {
   onNavigate: (sectionId: number) => void;
   disabled?: boolean;
+  programId?: string | null;
 }
 
-export function NetworkBuilderForm({ onNavigate, disabled }: Props) {
+export function NetworkBuilderForm({ onNavigate, disabled, programId }: Props) {
   const [locations, setLocations] = useState<NetworkLocationItem[]>([]);
   const [contracts, setContracts] = useState<NetworkContractSummary[]>([]);
   const [marketplaceEnabled, setMarketplaceEnabled] = useState(false);
@@ -123,11 +126,12 @@ export function NetworkBuilderForm({ onNavigate, disabled }: Props) {
   const [viewMode, setViewMode] = useState<ViewMode>("map");
   const [showMarketplace, setShowMarketplace] = useState(false);
 
-  // Pricing acceptance modal state
+  // Pricing review modal state (single or bulk)
   const [pricingModal, setPricingModal] = useState<{
     contractId: string;
-    sellerLocationId: string;
-    locationName: string;
+    sellerLocationIds: string[];
+    sellerName: string;
+    sellerId: string;
   } | null>(null);
 
   // Remove location modal state
@@ -137,16 +141,36 @@ export function NetworkBuilderForm({ onNavigate, disabled }: Props) {
     locationName: string;
   } | null>(null);
 
+  // Change price list modal state
+  const [changePriceListModal, setChangePriceListModal] = useState<{
+    contractId: string;
+    sellerName: string;
+    locationCount: number;
+    locationNames: string[];
+  } | null>(null);
+
+  // Remove all modal state
+  const [removeAllModal, setRemoveAllModal] = useState<{
+    contractId: string;
+    sellerLocationIds: string[];
+    sellerName: string;
+    locationNames: string[];
+  } | null>(null);
+
   const refresh = useCallback(async () => {
-    const data = await loadNetworkData();
+    const data = await loadNetworkData(programId ?? undefined);
     setLocations(data.locations);
     setContracts(data.contracts);
     setMarketplaceEnabled(data.marketplaceEnabled);
     setAffiliateOrgId(data.affiliateOrgId);
-  }, []);
+  }, [programId]);
 
   useEffect(() => {
-    refresh().then(() => setLoading(false));
+    setLoading(true);
+    refresh().then(() => setLoading(false)).catch((err) => {
+      console.error("Failed to load network data:", err);
+      setLoading(false);
+    });
   }, [refresh]);
 
   const includedCount = locations.filter((l) => l.included).length;
@@ -175,36 +199,30 @@ export function NetworkBuilderForm({ onNavigate, disabled }: Props) {
       .map((st) => ({ value: st.value, label: st.label })),
   ];
 
-  // Check if a seller already has any active terms (pricing already accepted)
-  function sellerHasActiveTerms(sellerOrgId: string): boolean {
-    const contract = contracts.find((c) => c.sellerId === sellerOrgId);
-    return (contract?.activeTermCount ?? 0) > 0;
+  // Handle "Add to Network" click (single location)
+  function handleAddLocation(location: NetworkLocationItem) {
+    setPricingModal({
+      contractId: location.contractId,
+      sellerLocationIds: [location.sellerLocationId],
+      sellerName: location.sellerOrgName || "Unknown",
+      sellerId: location.sellerOrgId,
+    });
   }
 
-  // Handle "Add to Network" click
-  async function handleAddLocation(location: NetworkLocationItem) {
-    if (sellerHasActiveTerms(location.sellerOrgId)) {
-      // Already have terms for this seller — add directly with pricing snapshot
-      try {
-        const pricingData = await loadSellerPricing(location.contractId);
-        const pricingSnapshot = {
-          services: pricingData.services,
-          snapshotAt: new Date().toISOString(),
-        };
-        await addLocationTerm(location.contractId, location.sellerLocationId, pricingSnapshot);
-        await refresh();
-        toast.success("Location added to network");
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Failed to add location");
-      }
-    } else {
-      // First location from this seller — show pricing acceptance modal
-      setPricingModal({
-        contractId: location.contractId,
-        sellerLocationId: location.sellerLocationId,
-        locationName: location.locationName,
-      });
-    }
+  // Handle "Add All" for a seller (bulk)
+  function handleAddAllFromSeller(sellerOrgId: string) {
+    const sellerLocs = locations.filter(
+      (l) => l.sellerOrgId === sellerOrgId && !l.included && !l.isSelfOwned,
+    );
+    if (sellerLocs.length === 0) return;
+    const contract = contracts.find((c) => c.sellerId === sellerOrgId);
+    if (!contract) return;
+    setPricingModal({
+      contractId: contract.contractId,
+      sellerLocationIds: sellerLocs.map((l) => l.sellerLocationId),
+      sellerName: contract.sellerName || "Unknown",
+      sellerId: sellerOrgId,
+    });
   }
 
   // Handle "Remove" click
@@ -213,6 +231,36 @@ export function NetworkBuilderForm({ onNavigate, disabled }: Props) {
       contractId: location.contractId,
       sellerLocationId: location.sellerLocationId,
       locationName: location.locationName,
+    });
+  }
+
+  // Handle "Remove All" for a seller (bulk)
+  function handleRemoveAllFromSeller(sellerOrgId: string) {
+    const sellerLocs = locations.filter(
+      (l) => l.sellerOrgId === sellerOrgId && l.included && !l.isSelfOwned,
+    );
+    if (sellerLocs.length === 0) return;
+    const contract = contracts.find((c) => c.sellerId === sellerOrgId);
+    if (!contract) return;
+    setRemoveAllModal({
+      contractId: contract.contractId,
+      sellerLocationIds: sellerLocs.map((l) => l.sellerLocationId),
+      sellerName: contract.sellerName || "Unknown",
+      locationNames: sellerLocs.map((l) => l.locationName),
+    });
+  }
+
+  // Handle "Change Price List" for a seller
+  function handleChangePriceList(sellerOrgId: string, contractId: string) {
+    const sellerLocs = locations.filter(
+      (l) => l.sellerOrgId === sellerOrgId && l.included && !l.isSelfOwned,
+    );
+    if (sellerLocs.length === 0) return;
+    setChangePriceListModal({
+      contractId,
+      sellerName: sellerLocs[0]?.sellerOrgName || "Unknown",
+      locationCount: sellerLocs.length,
+      locationNames: sellerLocs.map((l) => l.locationName),
     });
   }
 
@@ -336,6 +384,7 @@ export function NetworkBuilderForm({ onNavigate, disabled }: Props) {
         {viewMode === "list" ? (
           <NetworkListView
             locations={locations}
+            contracts={contracts}
             searchQuery={searchQuery}
             serviceFilter={serviceFilter}
             stateFilter={stateFilter}
@@ -343,10 +392,14 @@ export function NetworkBuilderForm({ onNavigate, disabled }: Props) {
             showMarketplace={showMarketplace}
             onAddLocation={!disabled ? handleAddLocation : undefined}
             onRemoveLocation={!disabled ? handleRemoveLocation : undefined}
+            onAddAllFromSeller={!disabled ? handleAddAllFromSeller : undefined}
+            onRemoveAllFromSeller={!disabled ? handleRemoveAllFromSeller : undefined}
+            onChangePriceList={!disabled ? handleChangePriceList : undefined}
           />
         ) : (
           <NetworkMapView
             locations={locations}
+            contracts={contracts}
             searchQuery={searchQuery}
             serviceFilter={serviceFilter}
             stateFilter={stateFilter}
@@ -363,6 +416,9 @@ export function NetworkBuilderForm({ onNavigate, disabled }: Props) {
             affiliateOrgId={affiliateOrgId}
             onAddLocation={!disabled ? handleAddLocation : undefined}
             onRemoveLocation={!disabled ? handleRemoveLocation : undefined}
+            onAddAllFromSeller={!disabled ? handleAddAllFromSeller : undefined}
+            onRemoveAllFromSeller={!disabled ? handleRemoveAllFromSeller : undefined}
+            onChangePriceList={!disabled ? handleChangePriceList : undefined}
           />
         )}
 
@@ -380,15 +436,22 @@ export function NetworkBuilderForm({ onNavigate, disabled }: Props) {
       <SectionNavButtons currentSection={5} onNavigate={onNavigate} />
 
       {pricingModal && (
-        <PricingAcceptanceModal
+        <PricingReviewModal
           contractId={pricingModal.contractId}
-          sellerLocationId={pricingModal.sellerLocationId}
-          locationName={pricingModal.locationName}
+          sellerLocationIds={pricingModal.sellerLocationIds}
+          sellerName={pricingModal.sellerName}
+          sellerId={pricingModal.sellerId}
+          programId={programId ?? null}
           onClose={() => setPricingModal(null)}
           onAccepted={() => {
             setPricingModal(null);
             refresh();
-            toast.success("Pricing accepted — location added to network");
+            const count = pricingModal.sellerLocationIds.length;
+            toast.success(
+              count > 1
+                ? `${count} locations added to network`
+                : "Location added to network",
+            );
           }}
         />
       )}
@@ -403,6 +466,39 @@ export function NetworkBuilderForm({ onNavigate, disabled }: Props) {
             setRemoveModal(null);
             refresh();
             toast.success("Location removed from network");
+          }}
+        />
+      )}
+
+      {changePriceListModal && (
+        <ChangePriceListModal
+          contractId={changePriceListModal.contractId}
+          sellerName={changePriceListModal.sellerName}
+          locationCount={changePriceListModal.locationCount}
+          locationNames={changePriceListModal.locationNames}
+          programId={programId ?? undefined}
+          onClose={() => setChangePriceListModal(null)}
+          onChanged={() => {
+            const name = changePriceListModal.sellerName;
+            setChangePriceListModal(null);
+            refresh();
+            toast.success(`Price list cleared for ${name}. Re-add locations to select new pricing.`);
+          }}
+        />
+      )}
+
+      {removeAllModal && (
+        <RemoveAllModal
+          contractId={removeAllModal.contractId}
+          sellerLocationIds={removeAllModal.sellerLocationIds}
+          sellerName={removeAllModal.sellerName}
+          locationNames={removeAllModal.locationNames}
+          onClose={() => setRemoveAllModal(null)}
+          onRemoved={() => {
+            const count = removeAllModal.sellerLocationIds.length;
+            setRemoveAllModal(null);
+            refresh();
+            toast.success(`${count} location${count !== 1 ? "s" : ""} removed from network`);
           }}
         />
       )}

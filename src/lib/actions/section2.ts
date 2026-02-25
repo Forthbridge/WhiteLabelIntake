@@ -21,8 +21,8 @@ export async function loadSection2(): Promise<Section2Data> {
   };
 }
 
-export async function saveSection2(data: Section2Data): Promise<Record<number, CompletionStatus>> {
-  const ctx = await getSessionContext();
+export async function saveSection2(data: Section2Data, selectedProgramId?: string): Promise<Record<number, CompletionStatus>> {
+  const ctx = await getSessionContext(selectedProgramId);
   await assertNotSubmitted(ctx.affiliateId);
 
   if (ctx.programId) {
@@ -36,5 +36,5 @@ export async function saveSection2(data: Section2Data): Promise<Record<number, C
 
   await writeSectionSnapshot(2, data, ctx.userId, ctx.affiliateId, ctx.programId);
 
-  return getCompletionStatuses(ctx.affiliateId);
+  return getCompletionStatuses(ctx.affiliateId, ctx.programId ?? undefined);
 }

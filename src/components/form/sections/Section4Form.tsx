@@ -12,7 +12,7 @@ import type { Section4Data } from "@/lib/validations/section4";
 import { useCompletion } from "@/lib/contexts/CompletionContext";
 import { useAdminForm } from "@/lib/contexts/AdminFormContext";
 import { SectionNavButtons } from "../SectionNavButtons";
-import { useSyncSectionCache, useReportDirty } from "../OnboardingClient";
+import { useSyncSectionCache, useReportDirty, useSelectedProgram } from "../OnboardingClient";
 
 const ACCOUNT_TYPE_OPTIONS = [
   { value: "checking", label: "Checking" },
@@ -24,11 +24,12 @@ export function Section4Form({ initialData, onNavigate, disabled }: { initialDat
   useSyncSectionCache(4, data);
   const { updateStatuses } = useCompletion();
   const adminCtx = useAdminForm();
+  const selectedProgramId = useSelectedProgram();
 
   const onSave = useCallback(async (d: Section4Data) => {
     if (adminCtx?.isAdminEditing) return saveSection4ForAffiliate(adminCtx.affiliateId, d);
-    return saveSection4(d);
-  }, [adminCtx]);
+    return saveSection4(d, selectedProgramId ?? undefined);
+  }, [adminCtx, selectedProgramId]);
 
   const { save, isDirty } = useSaveOnNext({ data, onSave, onAfterSave: updateStatuses });
   useReportDirty(4, isDirty);

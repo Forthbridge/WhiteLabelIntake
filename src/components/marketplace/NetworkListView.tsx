@@ -1,10 +1,12 @@
 "use client";
 
+import { Button } from "@/components/ui/Button";
 import { LocationCard } from "./LocationCard";
 import type { NetworkLocationItem } from "@/lib/actions/network";
 
 interface Props {
   locations: NetworkLocationItem[];
+  contracts?: { contractId: string; sellerId: string; priceListId?: string | null }[];
   searchQuery: string;
   serviceFilter: string;
   stateFilter: string;
@@ -12,6 +14,9 @@ interface Props {
   showMarketplace?: boolean;
   onAddLocation?: (location: NetworkLocationItem) => void;
   onRemoveLocation?: (location: NetworkLocationItem) => void;
+  onAddAllFromSeller?: (sellerOrgId: string) => void;
+  onRemoveAllFromSeller?: (sellerOrgId: string) => void;
+  onChangePriceList?: (sellerOrgId: string, contractId: string) => void;
 }
 
 function applyFilters(
@@ -45,8 +50,23 @@ function applyFilters(
   });
 }
 
+/** Groups locations by seller org, sorted by seller name */
+function groupBySeller(locs: NetworkLocationItem[]): { sellerOrgId: string; sellerName: string; locations: NetworkLocationItem[] }[] {
+  const map = new Map<string, { sellerName: string; locations: NetworkLocationItem[] }>();
+  for (const loc of locs) {
+    if (!map.has(loc.sellerOrgId)) {
+      map.set(loc.sellerOrgId, { sellerName: loc.sellerOrgName || "Unknown", locations: [] });
+    }
+    map.get(loc.sellerOrgId)!.locations.push(loc);
+  }
+  return Array.from(map.entries())
+    .map(([sellerOrgId, data]) => ({ sellerOrgId, ...data }))
+    .sort((a, b) => a.sellerName.localeCompare(b.sellerName));
+}
+
 export function NetworkListView({
   locations,
+  contracts,
   searchQuery,
   serviceFilter,
   stateFilter,
@@ -54,6 +74,9 @@ export function NetworkListView({
   showMarketplace,
   onAddLocation,
   onRemoveLocation,
+  onAddAllFromSeller,
+  onRemoveAllFromSeller,
+  onChangePriceList,
 }: Props) {
   // Network locations: included
   const networkLocs = applyFilters(
@@ -75,6 +98,9 @@ export function NetworkListView({
       )
     : [];
 
+  const sellerGroups = groupBySeller(availableLocs);
+  const networkSellerGroups = groupBySeller(networkLocs);
+
   if (networkLocs.length === 0 && availableLocs.length === 0) {
     return (
       <div className="text-center py-8">
@@ -89,33 +115,94 @@ export function NetworkListView({
 
   return (
     <div className="flex flex-col gap-3">
-      {/* Network locations */}
-      {networkLocs.map((loc) => (
-        <LocationCard
-          key={loc.id}
-          location={loc}
-          onRemove={
-            onRemoveLocation && !loc.isSelfOwned
-              ? () => onRemoveLocation(loc)
-              : undefined
-          }
-        />
+      {/* Network locations — grouped by seller */}
+      {networkSellerGroups.map((group) => (
+        <div key={group.sellerOrgId} className="flex flex-col gap-2">
+          {/* Seller group header (only when multiple sellers or non-self-owned with >1 location) */}
+          {(networkSellerGroups.length > 1 || (!group.locations[0]?.isSelfOwned && group.locations.length > 1)) && (
+            <div className="flex justify-between items-center px-1">
+              <p className="text-sm font-medium text-foreground">
+                {group.sellerName}
+                <span className="text-muted font-normal ml-1.5">
+                  ({group.locations.length} location{group.locations.length !== 1 ? "s" : ""})
+                </span>
+              </p>
+              <div className="flex items-center gap-2">
+                {onChangePriceList && !group.locations[0]?.isSelfOwned && (() => {
+                  const contract = contracts?.find(c => c.sellerId === group.sellerOrgId);
+                  return contract?.priceListId ? (
+                    <button
+                      type="button"
+                      onClick={() => onChangePriceList(group.sellerOrgId, contract.contractId)}
+                      className="text-xs text-brand-teal hover:underline"
+                    >
+                      Change Price List
+                    </button>
+                  ) : null;
+                })()}
+                {onRemoveAllFromSeller && !group.locations[0]?.isSelfOwned && group.locations.length > 1 && (
+                  <Button
+                    variant="secondary"
+                    onClick={() => onRemoveAllFromSeller(group.sellerOrgId)}
+                    className="text-xs px-3 py-1 text-error border-error/30 hover:bg-error/5"
+                  >
+                    Remove All
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+          {group.locations.map((loc) => (
+            <LocationCard
+              key={loc.id}
+              location={loc}
+              onRemove={
+                onRemoveLocation && !loc.isSelfOwned
+                  ? () => onRemoveLocation(loc)
+                  : undefined
+              }
+            />
+          ))}
+        </div>
       ))}
 
-      {/* Available to Add section */}
-      {availableLocs.length > 0 && (
+      {/* Available to Add section — grouped by seller */}
+      {sellerGroups.length > 0 && (
         <>
           <div className="border-t border-border/50 pt-3 mt-1">
             <p className="text-sm font-medium text-amber-700 mb-3">
               Available to Add ({availableLocs.length})
             </p>
           </div>
-          {availableLocs.map((loc) => (
-            <LocationCard
-              key={loc.id}
-              location={loc}
-              onAdd={onAddLocation ? () => onAddLocation(loc) : undefined}
-            />
+          {sellerGroups.map((group) => (
+            <div key={group.sellerOrgId} className="flex flex-col gap-2">
+              {/* Seller group header */}
+              <div className="flex justify-between items-center px-1">
+                <p className="text-sm font-medium text-foreground">
+                  {group.sellerName}
+                  <span className="text-muted font-normal ml-1.5">
+                    ({group.locations.length} location{group.locations.length !== 1 ? "s" : ""})
+                  </span>
+                </p>
+                {onAddAllFromSeller && group.locations.length > 1 && (
+                  <Button
+                    variant="secondary"
+                    onClick={() => onAddAllFromSeller(group.sellerOrgId)}
+                    className="text-xs px-3 py-1"
+                  >
+                    Add All
+                  </Button>
+                )}
+              </div>
+              {/* Individual location cards */}
+              {group.locations.map((loc) => (
+                <LocationCard
+                  key={loc.id}
+                  location={loc}
+                  onAdd={onAddLocation ? () => onAddLocation(loc) : undefined}
+                />
+              ))}
+            </div>
           ))}
         </>
       )}

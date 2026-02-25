@@ -21,8 +21,8 @@ export async function loadSection9(): Promise<Section9Data> {
   };
 }
 
-export async function saveSection9(data: Section9Data): Promise<Record<number, CompletionStatus>> {
-  const ctx = await getSessionContext();
+export async function saveSection9(data: Section9Data, selectedProgramId?: string): Promise<Record<number, CompletionStatus>> {
+  const ctx = await getSessionContext(selectedProgramId);
   await assertNotSubmitted(ctx.affiliateId);
 
   const existing = await prisma.careNavConfig.findFirst({
@@ -46,5 +46,5 @@ export async function saveSection9(data: Section9Data): Promise<Record<number, C
 
   await writeSectionSnapshot(9, data, ctx.userId, ctx.affiliateId);
 
-  return getCompletionStatuses(ctx.affiliateId);
+  return getCompletionStatuses(ctx.affiliateId, ctx.programId ?? undefined);
 }

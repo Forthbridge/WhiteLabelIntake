@@ -141,7 +141,13 @@ export async function loadNetworkData(selectedProgramId?: string): Promise<Netwo
   }
 
   const contracts = await prisma.networkContract.findMany({
-    where: { affiliateId, programId: programId ?? null },
+    where: {
+      affiliateId,
+      OR: [
+        { programId: programId ?? null },
+        ...(programId ? [{ programId: null }] : []),
+      ],
+    },
     include: {
       seller: { select: { id: true, legalName: true } },
       priceList: {
@@ -166,9 +172,23 @@ export async function loadNetworkData(selectedProgramId?: string): Promise<Netwo
         _count: true,
       })
     : [];
-  const sellersWithPriceLists = new Set(
-    sellerPLCounts.filter(s => s._count > 0).map(s => s.affiliateId)
+  // Map: sellerId -> number of price lists
+  const sellerPLCountMap = new Map<string, number>(
+    sellerPLCounts.filter(s => s._count > 0).map(s => [s.affiliateId, s._count])
   );
+
+  // For sellers with exactly one price list, auto-load it so we can resolve pricing
+  const sellersWithOnePL = [...sellerPLCountMap.entries()]
+    .filter(([, count]) => count === 1)
+    .map(([sellerId]) => sellerId);
+  const solePriceLists = sellersWithOnePL.length > 0
+    ? await prisma.sellerPriceList.findMany({
+        where: { affiliateId: { in: sellersWithOnePL } },
+        include: { visitPrices: true, subPrices: true },
+      })
+    : [];
+  // Map: sellerId -> their sole price list (with prices)
+  const solePLMap = new Map(solePriceLists.map(pl => [pl.affiliateId, pl]));
 
   const contractIds = contracts.map((c) => c.id);
   const sellerIds = contracts.map((c) => c.sellerId);
@@ -257,13 +277,16 @@ export async function loadNetworkData(selectedProgramId?: string): Promise<Netwo
       let pricing: PricingItem[] | null = null;
       const pricingItems: PricingItem[] = [];
       const contractHasPriceList = !!contract.priceList;
-      const sellerHasPriceLists = !contractHasPriceList && sellersWithPriceLists.has(contract.sellerId);
+      // Use sole price list as effective price list when contract has none assigned
+      const effectivePL = contract.priceList ?? solePLMap.get(contract.sellerId) ?? null;
+      const plCount = sellerPLCountMap.get(contract.sellerId) ?? 0;
+      const sellerHasMultiplePriceLists = !contractHasPriceList && plCount > 1;
 
-      if (contract.priceList) {
+      if (effectivePL) {
         // Build org-wide and location-specific price maps from the price list
         const plOrgVisitMap = new Map<string, Prisma.Decimal | null>();
         const plLocVisitMap = new Map<string, Prisma.Decimal | null>();
-        for (const v of contract.priceList.visitPrices) {
+        for (const v of effectivePL.visitPrices) {
           if (v.sellerLocationId === loc.id) {
             plLocVisitMap.set(v.serviceType, v.pricePerVisit);
           } else if (v.sellerLocationId == null) {
@@ -287,7 +310,7 @@ export async function loadNetworkData(selectedProgramId?: string): Promise<Netwo
         // Build org-wide and location-specific sub-service maps
         const plOrgSubMap = new Map<string, Prisma.Decimal | null>();
         const plLocSubMap = new Map<string, Prisma.Decimal | null>();
-        for (const sp of contract.priceList.subPrices) {
+        for (const sp of effectivePL.subPrices) {
           const key = `${sp.serviceType}:${sp.subType}`;
           if (sp.sellerLocationId === loc.id) {
             plLocSubMap.set(key, sp.unitPrice);
@@ -296,9 +319,9 @@ export async function loadNetworkData(selectedProgramId?: string): Promise<Netwo
           }
         }
 
-        // Use contract's price list for sub-service prices
+        // Use effective price list for sub-service prices
         // Iterate org-wide sub-services as the base set
-        for (const sp of contract.priceList.subPrices.filter((s) => s.sellerLocationId == null)) {
+        for (const sp of effectivePL.subPrices.filter((s) => s.sellerLocationId == null)) {
           const key = `${sp.serviceType}:${sp.subType}`;
           // Skip if location explicitly marks this sub-service as unavailable
           const locSub = loc.subServices?.find(
@@ -316,9 +339,9 @@ export async function loadNetworkData(selectedProgramId?: string): Promise<Netwo
             payer: coveredSubSet.has(`${sp.serviceType}:${sp.subType}`) ? "plan" : "patient",
           });
         }
-      } else if (!sellerHasPriceLists) {
+      } else if (!sellerHasMultiplePriceLists) {
         // Fall back to org-level pricing only when seller has no price lists
-        // (if seller has price lists, org-level pricing is misleading)
+        // (if seller has multiple price lists, org-level pricing is misleading)
         const sellerPrices = orgPriceMap.get(contract.sellerId);
         if (sellerPrices) {
           const pricedServiceTypes = new Set<string>();
@@ -393,7 +416,7 @@ export async function loadNetworkData(selectedProgramId?: string): Promise<Netwo
         included,
         services: enabledServices,
         pricing,
-        hasPriceLists: sellerHasPriceLists,
+        hasPriceLists: sellerHasMultiplePriceLists,
         hasPricing: pricingItems.length > 0,
       });
     }

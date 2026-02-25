@@ -174,7 +174,7 @@ export function SellerReviewForm({ sellerData, statuses, onNavigate, onSubmitted
             )}
           </div>
           {sellerData.pricing?.visitPrices?.filter((v) => v.price != null).map((vp) => (
-            <Field key={vp.serviceType} label={vp.serviceType === "primary_care" ? "Primary Care" : "Urgent Care"} value={`$${Number(vp.price).toFixed(2)} per visit`} />
+            <Field key={vp.serviceType} label={SELLER_SERVICE_TYPES.find((st) => st.value === vp.serviceType)?.label ?? vp.serviceType} value={`$${Number(vp.price).toFixed(2)} per visit`} />
           ))}
           {(sellerData.pricing?.subServicePrices?.filter((s) => s.unitPrice != null).length ?? 0) > 0 && (
             <p className="text-xs text-muted mt-2">

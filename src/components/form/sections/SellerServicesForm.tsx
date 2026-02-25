@@ -134,6 +134,38 @@ export function SellerServicesForm({ initialData, initialSubServiceData, onNavig
     setSubServiceDirty(true);
   }
 
+  function handleSelectGroup(group: string) {
+    if (!modalService) return;
+    const groupValues = new Set(
+      (SUB_SERVICE_TYPES[modalService] ?? []).filter((d) => d.group === group).map((d) => d.value)
+    );
+    setSubServiceData((prev) => ({
+      categories: {
+        ...prev.categories,
+        [modalService]: (prev.categories[modalService] ?? []).map((item) =>
+          groupValues.has(item.subType) ? { ...item, selected: true } : item
+        ),
+      },
+    }));
+    setSubServiceDirty(true);
+  }
+
+  function handleDeselectGroup(group: string) {
+    if (!modalService) return;
+    const groupValues = new Set(
+      (SUB_SERVICE_TYPES[modalService] ?? []).filter((d) => d.group === group).map((d) => d.value)
+    );
+    setSubServiceData((prev) => ({
+      categories: {
+        ...prev.categories,
+        [modalService]: (prev.categories[modalService] ?? []).map((item) =>
+          groupValues.has(item.subType) ? { ...item, selected: false } : item
+        ),
+      },
+    }));
+    setSubServiceDirty(true);
+  }
+
   // Build modal state
   const modalDefs = modalService ? SUB_SERVICE_TYPES[modalService] ?? [] : [];
   const modalLabel = modalService
@@ -206,6 +238,8 @@ export function SellerServicesForm({ initialData, initialSubServiceData, onNavig
         onToggle={handleToggle}
         onSelectAll={handleSelectAll}
         onDeselectAll={handleDeselectAll}
+        onSelectGroup={handleSelectGroup}
+        onDeselectGroup={handleDeselectGroup}
       />
 
       <SellerSectionNavButtons

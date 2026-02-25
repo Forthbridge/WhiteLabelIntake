@@ -47,7 +47,7 @@ export async function saveSection1ForAffiliate(
   }
 
   await writeSectionSnapshot(1, parsed as unknown as Prisma.InputJsonValue, ctx.userId, ctx.affiliateId, ctx.programId);
-  return getCompletionStatuses(ctx.affiliateId);
+  return getCompletionStatuses(ctx.affiliateId, ctx.programId ?? undefined);
 }
 
 // ─── Section 2 ──────────────────────────────────────────────────────
@@ -68,7 +68,7 @@ export async function saveSection2ForAffiliate(
   }
 
   await writeSectionSnapshot(2, data, ctx.userId, ctx.affiliateId, ctx.programId);
-  return getCompletionStatuses(ctx.affiliateId);
+  return getCompletionStatuses(ctx.affiliateId, ctx.programId ?? undefined);
 }
 
 // ─── Section 3 ──────────────────────────────────────────────────────
@@ -78,7 +78,7 @@ export async function saveSection3ForAffiliate(
   data: Section3Data
 ): Promise<Record<number, CompletionStatus>> {
   const ctx = await getContextForAffiliate(affiliateId);
-  if (!ctx.programId) return getCompletionStatuses(ctx.affiliateId);
+  if (!ctx.programId) return getCompletionStatuses(ctx.affiliateId, ctx.programId ?? undefined);
 
   await prisma.$transaction([
     prisma.service.deleteMany({ where: { programId: ctx.programId } }),
@@ -93,7 +93,7 @@ export async function saveSection3ForAffiliate(
   ]);
 
   await writeSectionSnapshot(3, { services: data.services }, ctx.userId, ctx.affiliateId, ctx.programId);
-  return getCompletionStatuses(ctx.affiliateId);
+  return getCompletionStatuses(ctx.affiliateId, ctx.programId ?? undefined);
 }
 
 // ─── Section 4 ──────────────────────────────────────────────────────
@@ -103,7 +103,7 @@ export async function saveSection4ForAffiliate(
   data: Section4Data
 ): Promise<Record<number, CompletionStatus>> {
   const ctx = await getContextForAffiliate(affiliateId);
-  if (!ctx.programId) return getCompletionStatuses(ctx.affiliateId);
+  if (!ctx.programId) return getCompletionStatuses(ctx.affiliateId, ctx.programId ?? undefined);
 
   await prisma.program.update({
     where: { id: ctx.programId },
@@ -140,7 +140,7 @@ export async function saveSection4ForAffiliate(
     ctx.programId
   );
 
-  return getCompletionStatuses(ctx.affiliateId);
+  return getCompletionStatuses(ctx.affiliateId, ctx.programId ?? undefined);
 }
 
 // ─── Section 5 ──────────────────────────────────────────────────────
@@ -222,7 +222,7 @@ export async function saveSection5ForAffiliate(
 
   const locationsWithIds = data.locations.map((l, i) => ({ ...l, id: locationIds[i] }));
   await writeSectionSnapshot(5, { defaultSchedulingSystem: data.defaultSchedulingSystem, locations: locationsWithIds }, ctx.userId, ctx.affiliateId);
-  const statuses = await getCompletionStatuses(ctx.affiliateId);
+  const statuses = await getCompletionStatuses(ctx.affiliateId, ctx.programId ?? undefined);
   return { statuses, locationIds };
 }
 
@@ -271,7 +271,7 @@ export async function saveSection6ForAffiliate(
 
   const providersWithIds = data.providers.map((p, i) => ({ ...p, id: providerIds[i] }));
   await writeSectionSnapshot(6, { providers: providersWithIds }, ctx.userId, ctx.affiliateId);
-  const statuses = await getCompletionStatuses(ctx.affiliateId);
+  const statuses = await getCompletionStatuses(ctx.affiliateId, ctx.programId ?? undefined);
   return { statuses, providerIds };
 }
 
@@ -314,7 +314,7 @@ export async function saveSection7ForAffiliate(
   }
 
   await writeSectionSnapshot(7, data, ctx.userId, ctx.affiliateId);
-  return getCompletionStatuses(ctx.affiliateId);
+  return getCompletionStatuses(ctx.affiliateId, ctx.programId ?? undefined);
 }
 
 // ─── Section 8 ──────────────────────────────────────────────────────
@@ -344,7 +344,7 @@ export async function saveSection8ForAffiliate(
   }
 
   await writeSectionSnapshot(8, data, ctx.userId, ctx.affiliateId);
-  return getCompletionStatuses(ctx.affiliateId);
+  return getCompletionStatuses(ctx.affiliateId, ctx.programId ?? undefined);
 }
 
 // ─── Section 9 ──────────────────────────────────────────────────────
@@ -373,7 +373,7 @@ export async function saveSection9ForAffiliate(
   }
 
   await writeSectionSnapshot(9, data, ctx.userId, ctx.affiliateId);
-  return getCompletionStatuses(ctx.affiliateId);
+  return getCompletionStatuses(ctx.affiliateId, ctx.programId ?? undefined);
 }
 
 // ─── Section 11 ─────────────────────────────────────────────────────
@@ -383,7 +383,7 @@ export async function saveSection11ForAffiliate(
   data: Section11Data
 ): Promise<Record<number, CompletionStatus>> {
   const ctx = await getContextForAffiliate(affiliateId);
-  if (!ctx.programId) return getCompletionStatuses(ctx.affiliateId);
+  if (!ctx.programId) return getCompletionStatuses(ctx.affiliateId, ctx.programId ?? undefined);
 
   // Flatten categories into SubService records
   const records: { programId: string; serviceType: string; subType: string; selected: boolean }[] = [];
@@ -404,5 +404,5 @@ export async function saveSection11ForAffiliate(
   ]);
 
   await writeSectionSnapshot(11, data, ctx.userId, ctx.affiliateId, ctx.programId);
-  return getCompletionStatuses(ctx.affiliateId);
+  return getCompletionStatuses(ctx.affiliateId, ctx.programId ?? undefined);
 }

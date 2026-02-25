@@ -15,6 +15,9 @@ interface SubServiceModalProps {
   onToggle: (subType: string) => void;
   onSelectAll: () => void;
   onDeselectAll: () => void;
+  /** Group-level select/deselect */
+  onSelectGroup?: (group: string) => void;
+  onDeselectGroup?: (group: string) => void;
   /** Optional price map: subType → unitPrice (null = not set) */
   prices?: Record<string, number | null>;
   /** Optional org-level price map for placeholders: subType → orgPrice */
@@ -33,6 +36,8 @@ export function SubServiceModal({
   onToggle,
   onSelectAll,
   onDeselectAll,
+  onSelectGroup,
+  onDeselectGroup,
   prices,
   orgPrices,
   onPriceChange,
@@ -131,6 +136,8 @@ export function SubServiceModal({
               subServiceDefs={subServiceDefs}
               items={items}
               onToggle={onToggle}
+              onSelectGroup={onSelectGroup}
+              onDeselectGroup={onDeselectGroup}
               prices={prices!}
               orgPrices={orgPrices}
               onPriceChange={onPriceChange!}
@@ -141,6 +148,8 @@ export function SubServiceModal({
               subServiceDefs={subServiceDefs}
               items={items}
               onToggle={onToggle}
+              onSelectGroup={onSelectGroup}
+              onDeselectGroup={onDeselectGroup}
             />
           )}
         </div>
@@ -154,6 +163,8 @@ function SubServiceGridWithPrices({
   subServiceDefs,
   items,
   onToggle,
+  onSelectGroup,
+  onDeselectGroup,
   prices,
   orgPrices,
   onPriceChange,
@@ -162,6 +173,8 @@ function SubServiceGridWithPrices({
   subServiceDefs: SubServiceItem[];
   items: Array<{ subType: string; selected: boolean }>;
   onToggle: (subType: string) => void;
+  onSelectGroup?: (group: string) => void;
+  onDeselectGroup?: (group: string) => void;
   prices: Record<string, number | null>;
   orgPrices?: Record<string, number | null>;
   onPriceChange: (subType: string, price: number | null) => void;
@@ -180,7 +193,19 @@ function SubServiceGridWithPrices({
     <div className="space-y-4">
       {Array.from(groups.entries()).map(([groupName, defs]) => (
         <div key={groupName}>
-          <h4 className="text-xs font-semibold text-muted uppercase tracking-wider mb-2">{groupName}</h4>
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="text-xs font-semibold text-muted uppercase tracking-wider">{groupName}</h4>
+            {(onSelectGroup || onDeselectGroup) && (
+              <div className="flex gap-2">
+                {onSelectGroup && (
+                  <button type="button" onClick={() => onSelectGroup(groupName)} className="text-[11px] text-brand-teal hover:underline">All</button>
+                )}
+                {onDeselectGroup && (
+                  <button type="button" onClick={() => onDeselectGroup(groupName)} className="text-[11px] text-muted hover:underline">None</button>
+                )}
+              </div>
+            )}
+          </div>
           <div className="space-y-1.5">
             {defs.map((def) => {
               const selected = itemMap.get(def.value) ?? true;
@@ -218,7 +243,7 @@ function SubServiceGridWithPrices({
                         value={price != null ? String(price) : ""}
                         onChange={(e) => {
                           const val = e.target.value;
-                          onPriceChange(def.value, val === "" ? null : parseFloat(val) || null);
+                          const parsed = parseFloat(val); onPriceChange(def.value, val === "" ? null : isNaN(parsed) ? null : parsed);
                         }}
                       />
                     </div>

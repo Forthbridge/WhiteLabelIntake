@@ -6,7 +6,6 @@ export const locationServicesSchema = z.object({
     z.object({
       serviceType: z.string(),
       available: z.boolean(),
-      pricePerVisit: z.number().positive().nullable().optional(),
     })
   ),
   subServices: z.array(
@@ -14,7 +13,6 @@ export const locationServicesSchema = z.object({
       serviceType: z.string(),
       subType: z.string(),
       available: z.boolean(),
-      unitPrice: z.number().positive().nullable().optional(),
     })
   ),
 });

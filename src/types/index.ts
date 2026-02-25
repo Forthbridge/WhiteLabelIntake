@@ -28,7 +28,7 @@ export interface SellerSectionMeta {
 export const SELLER_SECTIONS: SellerSectionMeta[] = [
   { id: "S-1", title: "Organization Info", description: "Tell us about your legal entity and key contacts. This information is used for contracting and day-to-day coordination." },
   { id: "S-4", title: "Default Services Offered", description: "Select the services your organization provides. These become the default service catalog for all your locations. Individual locations can customize their offerings if needed." },
-  { id: "S-7", title: "Default Price List", description: "This is your organization's default price list. Prices can be customized per location on the Physical Locations page." },
+  { id: "S-7", title: "Price Lists", description: "Create pricing for your services. Buyers select a price list when adding your locations to their network." },
   { id: "S-2", title: "Physical Locations", description: "Register the physical locations where your organization delivers care. Each location can customize its services, scheduling, and provider availability." },
   { id: "S-3", title: "Providers & Credentials", description: "Add the credentialed providers who deliver care at your locations. Each provider's information is used for credentialing and network directory listings." },
   { id: "S-5", title: "Lab Network", description: "Choose how your organization handles lab work. If you use a preferred lab partner, we'll coordinate setup." },

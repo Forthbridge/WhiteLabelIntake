@@ -28,10 +28,10 @@ export async function loadSection3(): Promise<Section3Data> {
   };
 }
 
-export async function saveSection3(data: Section3Data): Promise<Record<number, CompletionStatus>> {
-  const ctx = await getSessionContext();
+export async function saveSection3(data: Section3Data, selectedProgramId?: string): Promise<Record<number, CompletionStatus>> {
+  const ctx = await getSessionContext(selectedProgramId);
   await assertNotSubmitted(ctx.affiliateId);
-  if (!ctx.programId) return getCompletionStatuses(ctx.affiliateId);
+  if (!ctx.programId) return getCompletionStatuses(ctx.affiliateId, ctx.programId ?? undefined);
 
   // Replace all services in one transaction: deleteMany + createMany (PgBouncer-safe)
   await prisma.$transaction([
@@ -50,5 +50,5 @@ export async function saveSection3(data: Section3Data): Promise<Record<number, C
 
   await writeSectionSnapshot(3, { services: data.services }, ctx.userId, ctx.affiliateId, ctx.programId);
 
-  return getCompletionStatuses(ctx.affiliateId);
+  return getCompletionStatuses(ctx.affiliateId, ctx.programId ?? undefined);
 }

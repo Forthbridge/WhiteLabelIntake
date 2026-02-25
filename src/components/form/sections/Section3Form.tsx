@@ -141,6 +141,36 @@ export function Section3Form({ initialData, initialSubServiceData, onNavigate, d
     }));
   }
 
+  function handleSelectGroup(group: string) {
+    if (!modalService) return;
+    const groupValues = new Set(
+      (SUB_SERVICE_TYPES[modalService] ?? []).filter((d) => d.group === group).map((d) => d.value)
+    );
+    setSubServiceData((prev) => ({
+      categories: {
+        ...prev.categories,
+        [modalService]: (prev.categories[modalService] ?? []).map((item) =>
+          groupValues.has(item.subType) ? { ...item, selected: true } : item
+        ),
+      },
+    }));
+  }
+
+  function handleDeselectGroup(group: string) {
+    if (!modalService) return;
+    const groupValues = new Set(
+      (SUB_SERVICE_TYPES[modalService] ?? []).filter((d) => d.group === group).map((d) => d.value)
+    );
+    setSubServiceData((prev) => ({
+      categories: {
+        ...prev.categories,
+        [modalService]: (prev.categories[modalService] ?? []).map((item) =>
+          groupValues.has(item.subType) ? { ...item, selected: false } : item
+        ),
+      },
+    }));
+  }
+
   // Build modal state map for the current service
   const modalDefs = modalService ? SUB_SERVICE_TYPES[modalService] ?? [] : [];
   const modalLabel = modalService
@@ -235,6 +265,8 @@ export function Section3Form({ initialData, initialSubServiceData, onNavigate, d
         onToggle={handleToggle}
         onSelectAll={handleSelectAll}
         onDeselectAll={handleDeselectAll}
+        onSelectGroup={handleSelectGroup}
+        onDeselectGroup={handleDeselectGroup}
       />
 
       <SectionNavButtons currentSection={3} onNavigate={onNavigate} onSave={save} />

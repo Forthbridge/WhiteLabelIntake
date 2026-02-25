@@ -45,19 +45,31 @@ export async function submitSellerFlow(): Promise<void> {
   });
 
   if (affiliate?.isAffiliate) {
-    // Ensure self-contract exists; active terms are auto-created by loadNetworkData
-    await prisma.networkContract.upsert({
-      where: {
-        affiliateId_sellerId: {
-          affiliateId: ctx.affiliateId,
-          sellerId: ctx.affiliateId,
-        },
-      },
-      update: {},
-      create: {
-        affiliateId: ctx.affiliateId,
-        sellerId: ctx.affiliateId,
-      },
+    // Ensure self-contracts exist for all programs; active terms are auto-created by loadNetworkData
+    const programs = await prisma.program.findMany({
+      where: { affiliateId: ctx.affiliateId },
+      select: { id: true },
     });
+    for (const prog of programs) {
+      const existing = await prisma.networkContract.findFirst({
+        where: { affiliateId: ctx.affiliateId, sellerId: ctx.affiliateId, programId: prog.id },
+      });
+      if (!existing) {
+        await prisma.networkContract.create({
+          data: { affiliateId: ctx.affiliateId, sellerId: ctx.affiliateId, programId: prog.id },
+        });
+      }
+    }
+    // Also handle legacy null-program contract if no programs exist
+    if (programs.length === 0) {
+      const existing = await prisma.networkContract.findFirst({
+        where: { affiliateId: ctx.affiliateId, sellerId: ctx.affiliateId, programId: null },
+      });
+      if (!existing) {
+        await prisma.networkContract.create({
+          data: { affiliateId: ctx.affiliateId, sellerId: ctx.affiliateId },
+        });
+      }
+    }
   }
 }

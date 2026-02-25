@@ -11,10 +11,10 @@ import { getSessionContext } from "./helpers";
  */
 export async function getMyCompletionStatuses(): Promise<Record<number, CompletionStatus>> {
   const ctx = await getSessionContext();
-  return getCompletionStatuses(ctx.affiliateId);
+  return getCompletionStatuses(ctx.affiliateId, ctx.programId ?? undefined);
 }
 
-export async function getCompletionStatuses(affiliateId: string): Promise<Record<number, CompletionStatus>> {
+export async function getCompletionStatuses(affiliateId: string, programId?: string): Promise<Record<number, CompletionStatus>> {
   const statuses: Record<number, CompletionStatus> = {};
 
   const affiliate = await prisma.affiliate.findUnique({
@@ -22,9 +22,9 @@ export async function getCompletionStatuses(affiliateId: string): Promise<Record
     select: { legalName: true, status: true },
   });
 
-  const program = await prisma.program.findFirst({
-    where: { affiliateId },
-  });
+  const program = programId
+    ? await prisma.program.findFirst({ where: { id: programId, affiliateId } })
+    : await prisma.program.findFirst({ where: { affiliateId } });
 
   // Section 1: Client & Program Overview
   if (program) {
@@ -60,7 +60,7 @@ export async function getCompletionStatuses(affiliateId: string): Promise<Record
 
   // Section 5: Care Network — complete when at least 1 active term in network
   const allTerms = await prisma.networkContractTerm.findMany({
-    where: { contract: { affiliateId } },
+    where: { contract: { affiliateId, programId: program?.id ?? null } },
     orderBy: { createdAt: "desc" },
     select: { contractId: true, sellerLocationId: true, status: true },
   });

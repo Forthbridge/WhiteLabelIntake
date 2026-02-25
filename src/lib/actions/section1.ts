@@ -42,8 +42,8 @@ export async function loadSection1(): Promise<Section1Data> {
   };
 }
 
-export async function saveSection1(data: Section1Data): Promise<Record<number, CompletionStatus>> {
-  const ctx = await getSessionContext();
+export async function saveSection1(data: Section1Data, selectedProgramId?: string): Promise<Record<number, CompletionStatus>> {
+  const ctx = await getSessionContext(selectedProgramId);
   await assertNotSubmitted(ctx.affiliateId);
   const parsed = section1Schema.parse(data);
 
@@ -71,5 +71,5 @@ export async function saveSection1(data: Section1Data): Promise<Record<number, C
 
   await writeSectionSnapshot(1, parsed as unknown as Prisma.InputJsonValue, ctx.userId, ctx.affiliateId, ctx.programId);
 
-  return getCompletionStatuses(ctx.affiliateId);
+  return getCompletionStatuses(ctx.affiliateId, ctx.programId ?? undefined);
 }

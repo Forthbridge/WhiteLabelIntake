@@ -430,7 +430,9 @@ export function SellerLocationsForm({ initialData, sellerServiceOfferings, locat
       const orgCategory = orgSubServices?.categories[svc.serviceType];
       const selectedCount = orgCategory?.filter((i) => i.selected).length ?? 0;
       if (selectedCount > 0) {
-        const label = SERVICE_TYPES.find((st) => st.value === svc.serviceType)?.label ?? svc.serviceType;
+        const label = SELLER_SERVICE_TYPES.find((st) => st.value === svc.serviceType)?.label
+          ?? SERVICE_TYPES.find((st) => st.value === svc.serviceType)?.label
+          ?? svc.serviceType;
         summary.push({ label, count: selectedCount, total: subItems.length });
       }
     }

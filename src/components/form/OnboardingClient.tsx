@@ -197,6 +197,7 @@ function OnboardingClientInner({
   const [selectedProgramId, setSelectedProgramId] = useState<string | null>(programs[0]?.id ?? null);
   const [cache, setCache] = useState<AllSectionData>(sectionData);
   const [programDataCache, setProgramDataCache] = useState<Record<string, AllSectionData>>(allProgramData);
+  const switchingPlanRef = useRef(false);
   const [isSaving, setIsSaving] = useState(false);
   const [dirtySections, setDirtySections] = useState<Record<string | number, boolean>>({});
   const [sellerStatuses, setSellerStatuses] = useState<Record<SellerSectionId, CompletionStatus>>(
@@ -226,6 +227,8 @@ function OnboardingClientInner({
   }, []);
 
   const updateCache = useCallback((section: number, data: unknown) => {
+    // Skip unmount cache syncs during plan switches to prevent cross-program contamination
+    if (switchingPlanRef.current) return;
     setCache((prev) => ({ ...prev, [section]: data }));
   }, []);
 
@@ -245,6 +248,9 @@ function OnboardingClientInner({
   }, []);
 
   const handlePlanChange = useCallback((programId: string) => {
+    // Guard: suppress unmount cache syncs from the old form so stale data
+    // doesn't overwrite the incoming plan's cache.
+    switchingPlanRef.current = true;
     // Save current plan data to cache before switching
     if (selectedProgramId) {
       setProgramDataCache((prev) => ({ ...prev, [selectedProgramId]: cache }));
@@ -256,6 +262,8 @@ function OnboardingClientInner({
       setCache(planData);
     }
     window.scrollTo({ top: 0, behavior: "instant" });
+    // Re-enable cache syncs after React processes the unmount
+    requestAnimationFrame(() => { switchingPlanRef.current = false; });
   }, [selectedProgramId, cache, programDataCache]);
 
   const handleProgramListUpdate = useCallback((newPrograms: ProgramInfo[]) => {

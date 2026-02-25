@@ -507,9 +507,9 @@ export async function teardownTestData(): Promise<void> {
       where: { email: { startsWith: "e2e-" } },
     }),
 
-    // Affiliates
+    // Affiliates (use collected IDs to catch registration-created affiliates with no legalName)
     prisma.affiliate.deleteMany({
-      where: { legalName: { startsWith: "E2E " } },
+      where: { id: { in: affIds } },
     }),
   ]);
 

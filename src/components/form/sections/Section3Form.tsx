@@ -228,6 +228,7 @@ export function Section3Form({ initialData, initialSubServiceData, onNavigate, d
                         type="button"
                         onClick={() => openModal(service.serviceType)}
                         className="text-xs text-brand-teal hover:underline whitespace-nowrap"
+                        disabled={disabled}
                       >
                         Configure &rarr;
                       </button>

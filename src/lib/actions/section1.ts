@@ -53,7 +53,11 @@ export async function saveSection1(data: Section1Data, selectedProgramId?: strin
     data: { legalName: parsed.legalName || null },
   });
 
-  // Update program fields
+  // Update program fields (programId is always set for registered users;
+  // null only occurs if the affiliate has no programs, which shouldn't happen)
+  if (!ctx.programId) {
+    console.warn(`[saveSection1] No programId for affiliate ${ctx.affiliateId} — program fields not saved`);
+  }
   if (ctx.programId) {
     await prisma.program.update({
       where: { id: ctx.programId },

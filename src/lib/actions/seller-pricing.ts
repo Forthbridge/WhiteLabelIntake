@@ -33,12 +33,12 @@ export async function loadSellerPricing(): Promise<SellerPricingData> {
   return {
     visitPrices: offerings.map((o) => ({
       serviceType: o.serviceType,
-      price: o.basePricePerVisit ? Number(o.basePricePerVisit) : null,
+      price: o.basePricePerVisit != null ? Number(o.basePricePerVisit) : null,
     })),
     subServicePrices: orgSubs.map((s) => ({
       serviceType: s.serviceType,
       subType: s.subType,
-      unitPrice: s.unitPrice ? Number(s.unitPrice) : null,
+      unitPrice: s.unitPrice != null ? Number(s.unitPrice) : null,
     })),
   };
 }

@@ -52,7 +52,7 @@ async function main() {
   console.log(`  SellerOrgSubService:   ${novantOSS}`);
   console.log(`  NetworkContract:       ${novantNC}`);
 
-  if (novantLocs + novantSSO + novantOSS > 0) {
+  if (novantLocs + novantSSO + novantOSS + novantNC > 0) {
     console.error(`\nERROR: Novant already has seller location/service data! Aborting.`);
     process.exit(1);
   }

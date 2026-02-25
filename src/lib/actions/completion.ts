@@ -24,7 +24,7 @@ export async function getCompletionStatuses(affiliateId: string, programId?: str
 
   const program = programId
     ? await prisma.program.findFirst({ where: { id: programId, affiliateId } })
-    : await prisma.program.findFirst({ where: { affiliateId } });
+    : await prisma.program.findFirst({ where: { affiliateId }, orderBy: { createdAt: "asc" } });
 
   // Section 1: Client & Program Overview
   if (program) {
@@ -75,6 +75,15 @@ export async function getCompletionStatuses(affiliateId: string, programId?: str
     }
   }
   statuses[5] = activeTermCount > 0 ? "complete" : "not_started";
+
+  // Section 11: Sub-Service Configuration — complete when at least 1 sub-service selected
+  if (program) {
+    const subServices = await prisma.subService.findMany({ where: { programId: program.id } });
+    const selectedSubs = subServices.filter((ss) => ss.selected);
+    statuses[11] = selectedSubs.length > 0 ? "complete" : subServices.length > 0 ? "in_progress" : "not_started";
+  } else {
+    statuses[11] = "not_started";
+  }
 
   // Section 9: Care Navigation
   const cn = await prisma.careNavConfig.findFirst({ where: { affiliateId } });

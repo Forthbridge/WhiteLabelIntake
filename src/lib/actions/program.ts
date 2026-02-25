@@ -35,11 +35,6 @@ export async function duplicateProgram(
   });
   if (!source) throw new Error("Source program not found");
 
-  // Load care nav config for this affiliate (shared, will be cloned for the plan context)
-  const careNav = await prisma.careNavConfig.findFirst({
-    where: { affiliateId: ctx.affiliateId },
-  });
-
   // Load network contracts + active terms for the source program
   const sourceContracts = await prisma.networkContract.findMany({
     where: { affiliateId: ctx.affiliateId, programId: sourceProgramId },

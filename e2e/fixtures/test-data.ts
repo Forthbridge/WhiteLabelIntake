@@ -330,10 +330,17 @@ export async function teardownTestData(): Promise<void> {
     .map((u) => u.affiliateId)
     .filter((id): id is string => id !== null);
 
+  // Also find orphaned affiliates with no legalName and no users (left behind by crashed test runs)
+  const orphanedAffiliates = await prisma.affiliate.findMany({
+    where: { legalName: null, users: { none: {} } },
+    select: { id: true },
+  });
+
   const affIds = [
     ...new Set([
       ...e2eAffiliates.map((a) => a.id),
       ...userAffIds,
+      ...orphanedAffiliates.map((a) => a.id),
     ]),
   ];
   const userIds = e2eUsers.map((u) => u.id);

@@ -63,7 +63,7 @@ test.describe("seller S-5: lab network", () => {
       await expect(onboarding.sectionHeading).not.toContainText("Lab Network", { timeout: 10_000 });
     }
 
-    const isComplete = await onboarding.isSectionComplete("Lab Network");
-    expect(isComplete).toBe(true);
+    const navItem = page.locator('[role="button"]', { hasText: "Lab Network" });
+    await expect(navItem.locator("svg.text-success")).toBeVisible({ timeout: 10_000 });
   });
 });

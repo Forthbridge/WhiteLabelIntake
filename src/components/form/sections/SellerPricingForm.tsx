@@ -62,6 +62,7 @@ function BundleRulesEditor({
 }) {
   const [expandedRules, setExpandedRules] = useState<Set<number>>(new Set());
   const [openSubMenus, setOpenSubMenus] = useState<Set<string>>(new Set());
+  const [emptyServiceRows, setEmptyServiceRows] = useState<Set<string>>(new Set());
 
   const selectedServices = serviceSelections.filter((s) => s.selected);
 
@@ -98,6 +99,17 @@ function BundleRulesEditor({
       }
       return next;
     });
+    // Clean up emptyServiceRows for this rule and re-index
+    setEmptyServiceRows((prev) => {
+      const next = new Set<string>();
+      for (const key of prev) {
+        const [ri, st] = key.split(":");
+        const riNum = Number(ri);
+        if (riNum < idx) next.add(key);
+        else if (riNum > idx) next.add(`${riNum - 1}:${st}`);
+      }
+      return next;
+    });
   }
 
   function updateRule(idx: number, patch: Partial<BundleRuleData>) {
@@ -120,6 +132,11 @@ function BundleRulesEditor({
     updateRule(ruleIdx, {
       targets: rule.targets.filter((t) => t.serviceType !== serviceType),
     });
+    setEmptyServiceRows((prev) => {
+      const next = new Set(prev);
+      next.delete(`${ruleIdx}:${serviceType}`);
+      return next;
+    });
   }
 
   function toggleSubService(ruleIdx: number, serviceType: string, subValue: string | null) {
@@ -131,8 +148,12 @@ function BundleRulesEditor({
       const hasCategory = rule.targets.some((t) => t.serviceType === serviceType && t.subType == null);
       let newTargets: typeof rule.targets;
       if (hasCategory) {
-        // Remove category target (deselect entire category)
-        newTargets = rule.targets.filter((t) => t.serviceType !== serviceType);
+        // Uncheck "Entire category" → expand to all individual subs checked
+        const allSubs = subOptions.map((s) => s.value);
+        newTargets = [
+          ...rule.targets.filter((t) => t.serviceType !== serviceType),
+          ...allSubs.map((v) => ({ serviceType, subType: v })),
+        ];
       } else {
         // Set to entire category — remove individual sub-service targets, add category
         newTargets = [
@@ -140,6 +161,12 @@ function BundleRulesEditor({
           { serviceType, subType: null },
         ];
       }
+      // Clear empty row tracking since we have targets now
+      setEmptyServiceRows((prev) => {
+        const next = new Set(prev);
+        next.delete(`${ruleIdx}:${serviceType}`);
+        return next;
+      });
       updateRule(ruleIdx, { targets: newTargets });
     } else {
       // Toggle individual sub-service
@@ -157,9 +184,9 @@ function BundleRulesEditor({
       } else if (existing) {
         // Deselect this sub-service
         newTargets = rule.targets.filter((t) => !(t.serviceType === serviceType && t.subType === subValue));
-        // If nothing left for this service type, remove the category entirely
+        // If nothing left for this service type, keep row visible via emptyServiceRows
         if (!newTargets.some((t) => t.serviceType === serviceType)) {
-          // keep as-is — category row will show with nothing selected
+          setEmptyServiceRows((prev) => new Set([...prev, `${ruleIdx}:${serviceType}`]));
         }
       } else {
         // Select this sub-service
@@ -174,9 +201,24 @@ function BundleRulesEditor({
         } else {
           newTargets = updated;
         }
+        // Clear empty row tracking since we're adding a target
+        setEmptyServiceRows((prev) => {
+          const next = new Set(prev);
+          next.delete(`${ruleIdx}:${serviceType}`);
+          return next;
+        });
       }
       updateRule(ruleIdx, { targets: newTargets });
     }
+  }
+
+  function deselectAllSubs(ruleIdx: number, serviceType: string) {
+    const rule = bundleRules[ruleIdx];
+    updateRule(ruleIdx, {
+      targets: rule.targets.filter((t) => t.serviceType !== serviceType),
+    });
+    // Keep the row visible via local state
+    setEmptyServiceRows((prev) => new Set([...prev, `${ruleIdx}:${serviceType}`]));
   }
 
   function changeServiceType(ruleIdx: number, oldServiceType: string, newServiceType: string) {
@@ -311,7 +353,7 @@ function BundleRulesEditor({
                         + Add Service
                       </button>
                     </div>
-                    {rule.targets.length === 0 && (
+                    {rule.targets.length === 0 && !Array.from(emptyServiceRows).some((k) => k.startsWith(`${idx}:`)) && (
                       <p className="text-xs text-muted italic">No services included. Add at least one service category or sub-service.</p>
                     )}
                     <div className="space-y-2">
@@ -321,6 +363,13 @@ function BundleRulesEditor({
                         for (const t of rule.targets) {
                           if (!grouped.has(t.serviceType)) grouped.set(t.serviceType, []);
                           grouped.get(t.serviceType)!.push({ serviceType: t.serviceType, subType: t.subType ?? null });
+                        }
+                        // Also include service rows with no selections (from Deselect All)
+                        for (const key of emptyServiceRows) {
+                          const [ri, st] = key.split(":");
+                          if (Number(ri) === idx && !grouped.has(st)) {
+                            grouped.set(st, []);
+                          }
                         }
                         return Array.from(grouped.entries()).map(([serviceType, targets]) => {
                           const subOptions = SUB_SERVICE_TYPES[serviceType] ?? [];
@@ -394,6 +443,18 @@ function BundleRulesEditor({
                                         />
                                         <span className="font-medium">Entire category</span>
                                       </label>
+                                      {!hasCategory && subOptions.length > 0 && (
+                                        <div className="flex items-center justify-between px-2.5 py-1 border-b border-border/30">
+                                          <button type="button" onClick={() => toggleSubService(idx, serviceType, null)}
+                                            className="text-[10px] text-brand-teal hover:underline">
+                                            Select All
+                                          </button>
+                                          <button type="button" onClick={() => deselectAllSubs(idx, serviceType)}
+                                            className="text-[10px] text-muted hover:text-error hover:underline">
+                                            Deselect All
+                                          </button>
+                                        </div>
+                                      )}
                                       {subOptions.map((sub) => (
                                         <label
                                           key={sub.value}

@@ -228,6 +228,14 @@ function BundleRulesEditor({
         t.serviceType === oldServiceType ? { serviceType: newServiceType, subType: null } : t
       ),
     });
+    setEmptyServiceRows((prev) => {
+      const oldKey = `${ruleIdx}:${oldServiceType}`;
+      if (!prev.has(oldKey)) return prev;
+      const next = new Set(prev);
+      next.delete(oldKey);
+      next.add(`${ruleIdx}:${newServiceType}`);
+      return next;
+    });
   }
 
   if (bundleRules.length === 0) {

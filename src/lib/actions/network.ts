@@ -3,6 +3,8 @@
 import { prisma } from "@/lib/prisma";
 import { getSessionContext } from "./helpers";
 import type { Prisma } from "@prisma/client";
+import { resolveBundleRules, mergeLocationBundles } from "./bundle-resolution";
+import type { BundleRuleWithTargets } from "./bundle-resolution";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -97,18 +99,20 @@ export async function loadNetworkData(selectedProgramId?: string): Promise<Netwo
   const affiliateId = ctx.affiliateId;
   const programId = ctx.programId;
 
-  // Load marketplace flag
-  const aff = await prisma.affiliate.findUnique({
-    where: { id: affiliateId },
-    select: { marketplaceEnabled: true },
-  });
+  // Load marketplace flag + self-locations in parallel
+  const [aff, selfLocations] = await Promise.all([
+    prisma.affiliate.findUnique({
+      where: { id: affiliateId },
+      select: { marketplaceEnabled: true },
+    }),
+    prisma.sellerLocation.findMany({
+      where: { affiliateId },
+      select: { id: true },
+    }),
+  ]);
   const marketplaceEnabled = aff?.marketplaceEnabled ?? false;
 
   // Auto-ensure self-contract exists if this affiliate has seller locations
-  const selfLocations = await prisma.sellerLocation.findMany({
-    where: { affiliateId },
-    select: { id: true },
-  });
   if (selfLocations.length > 0) {
     // Use findFirst + create pattern since compound unique with nullable programId needs special handling
     let selfContract = await prisma.networkContract.findFirst({
@@ -120,23 +124,24 @@ export async function loadNetworkData(selectedProgramId?: string): Promise<Netwo
       });
     }
 
-    // Ensure ACTIVE terms exist for all self-locations (create if none active)
-    for (const loc of selfLocations) {
-      const existing = await prisma.networkContractTerm.findFirst({
-        where: { contractId: selfContract.id, sellerLocationId: loc.id, status: "ACTIVE" },
-        select: { id: true },
+    // Batch-check which self-locations already have active terms
+    const existingTerms = await prisma.networkContractTerm.findMany({
+      where: { contractId: selfContract.id, status: "ACTIVE" },
+      select: { sellerLocationId: true },
+    });
+    const activeLocIds = new Set(existingTerms.map((t) => t.sellerLocationId));
+    const missingLocs = selfLocations.filter((loc) => !activeLocIds.has(loc.id));
+
+    if (missingLocs.length > 0) {
+      await prisma.networkContractTerm.createMany({
+        data: missingLocs.map((loc) => ({
+          contractId: selfContract.id,
+          sellerLocationId: loc.id,
+          status: "ACTIVE",
+          acceptedByUserId: ctx.userId,
+          updatedByUserId: ctx.userId,
+        })),
       });
-      if (!existing) {
-        await prisma.networkContractTerm.create({
-          data: {
-            contractId: selfContract.id,
-            sellerLocationId: loc.id,
-            status: "ACTIVE",
-            acceptedByUserId: ctx.userId,
-            updatedByUserId: ctx.userId,
-          },
-        });
-      }
     }
   }
 
@@ -193,35 +198,27 @@ export async function loadNetworkData(selectedProgramId?: string): Promise<Netwo
   const contractIds = contracts.map((c) => c.id);
   const sellerIds = contracts.map((c) => c.sellerId);
 
-  // Load plan's covered sub-services for payer tagging
-  let coveredSubSet = new Set<string>(); // "serviceType:subType"
-  if (programId) {
-    const coveredSubs = await prisma.subService.findMany({
-      where: { programId, selected: true },
-      select: { serviceType: true, subType: true },
-    });
-    coveredSubSet = new Set(coveredSubs.map((s) => `${s.serviceType}:${s.subType}`));
-  }
-
-  // Get latest terms to determine inclusion
-  const latestTerms = await getTermsByContract(contractIds);
-
-  // Load all seller locations for contracted sellers
-  const allLocations = await prisma.sellerLocation.findMany({
-    where: { affiliateId: { in: sellerIds } },
-    include: {
-      serviceConfigs: {
-        select: { serviceType: true, available: true },
+  // Load terms, locations, org offerings, and covered subs all in parallel
+  const [
+    latestTerms,
+    allLocations,
+    orgOfferings,
+    orgSubServices,
+    coveredSubs,
+  ] = await Promise.all([
+    getTermsByContract(contractIds),
+    prisma.sellerLocation.findMany({
+      where: { affiliateId: { in: sellerIds } },
+      include: {
+        serviceConfigs: {
+          select: { serviceType: true, available: true },
+        },
+        subServices: {
+          select: { serviceType: true, subType: true, available: true },
+        },
       },
-      subServices: {
-        select: { serviceType: true, subType: true, available: true },
-      },
-    },
-    orderBy: { createdAt: "asc" },
-  });
-
-  // Load org-level service offerings for pricing resolution
-  const [orgOfferings, orgSubServices] = await Promise.all([
+      orderBy: { createdAt: "asc" },
+    }),
     prisma.sellerServiceOffering.findMany({
       where: { affiliateId: { in: sellerIds }, selected: true },
       select: { affiliateId: true, serviceType: true, basePricePerVisit: true },
@@ -230,7 +227,15 @@ export async function loadNetworkData(selectedProgramId?: string): Promise<Netwo
       where: { affiliateId: { in: sellerIds }, selected: true, unitPrice: { not: null } },
       select: { affiliateId: true, serviceType: true, subType: true, unitPrice: true },
     }),
+    programId
+      ? prisma.subService.findMany({
+          where: { programId, selected: true },
+          select: { serviceType: true, subType: true },
+        })
+      : Promise.resolve([]),
   ]);
+
+  const coveredSubSet = new Set(coveredSubs.map((s) => `${s.serviceType}:${s.subType}`));
 
   // Build a map: sellerId -> serviceType -> orgPrice
   const orgPriceMap = new Map<string, Map<string, Prisma.Decimal | null>>();
@@ -743,6 +748,14 @@ export interface PricingReviewSubService {
   payer: "plan" | "patient";
 }
 
+export interface AppliedBundleReview {
+  name: string;
+  ruleType: "flat_rate";
+  price: number;
+  includesVisitFee: boolean;
+  coveredItems: Array<{ serviceType: string; subType?: string }>;
+}
+
 export interface LocationPricingReview {
   sellerLocationId: string;
   locationName: string;
@@ -750,6 +763,8 @@ export interface LocationPricingReview {
   visitFees: { serviceType: string; label: string; price: number | null }[];
   planPays: Record<string, PricingReviewSubService[]>;   // grouped by serviceType
   patientPays: Record<string, PricingReviewSubService[]>; // grouped by serviceType
+  bundlePricing: AppliedBundleReview[];
+  visitFeeAbsorbed: boolean;
 }
 
 export async function loadLocationPricingReview(
@@ -773,6 +788,7 @@ export async function loadLocationPricingReview(
         include: {
           visitPrices: true,
           subPrices: true,
+          bundles: { include: { targets: true }, orderBy: { createdAt: "asc" } },
         },
       },
     },
@@ -781,24 +797,23 @@ export async function loadLocationPricingReview(
     throw new Error("Contract not found");
   }
 
-  // 1. Load affiliate's plan sub-services → covered set
+  // 1. Load affiliate's plan sub-services + seller name in parallel
   const programId = ctx.programId;
-  let coveredSubSet = new Set<string>(); // "serviceType:subType"
-  if (programId) {
-    const coveredSubs = await prisma.subService.findMany({
-      where: { programId, selected: true },
-      select: { serviceType: true, subType: true },
-    });
-    coveredSubSet = new Set(coveredSubs.map((s) => `${s.serviceType}:${s.subType}`));
-  }
+  const [coveredSubs, seller] = await Promise.all([
+    programId
+      ? prisma.subService.findMany({
+          where: { programId, selected: true },
+          select: { serviceType: true, subType: true },
+        })
+      : Promise.resolve([]),
+    prisma.affiliate.findUnique({
+      where: { id: contract.sellerId },
+      select: { legalName: true },
+    }),
+  ]);
+  const coveredSubSet = new Set(coveredSubs.map((s) => `${s.serviceType}:${s.subType}`));
 
-  // 2. Load seller org name
-  const seller = await prisma.affiliate.findUnique({
-    where: { id: contract.sellerId },
-    select: { legalName: true },
-  });
-
-  // 3. Build visit price + sub-service price sources (price list or org-level fallback)
+  // 2. Build visit price + sub-service price sources (price list or org-level fallback)
   const visitPriceMap = new Map<string, number | null>();
   interface SubServiceSource { serviceType: string; subType: string; unitPrice: number | null }
   const subServiceSources: SubServiceSource[] = [];
@@ -810,7 +825,11 @@ export async function loadLocationPricingReview(
     // Verify the preview price list belongs to this seller
     priceListData = await prisma.sellerPriceList.findFirst({
       where: { id: previewPriceListId, affiliateId: contract.sellerId },
-      include: { visitPrices: true, subPrices: true },
+      include: {
+        visitPrices: true,
+        subPrices: true,
+        bundles: { include: { targets: true }, orderBy: { createdAt: "asc" } },
+      },
     });
     if (!priceListData) {
       throw new Error("Price list not found or not accessible");
@@ -881,6 +900,27 @@ export async function loadLocationPricingReview(
     }
   }
 
+  // 4c. Build bundle rule maps from price list
+  let orgBundleRules: BundleRuleWithTargets[] = [];
+  const locBundleOverrides = new Map<string, BundleRuleWithTargets[]>();
+  if (priceListData && effectivePriceListId && priceListData.bundles) {
+    for (const b of priceListData.bundles) {
+      const rule: BundleRuleWithTargets = {
+        name: b.name,
+        ruleType: b.ruleType as "flat_rate",
+        price: Number(b.price),
+        includesVisitFee: b.includesVisitFee,
+        targets: b.targets.map((t) => ({ serviceType: t.serviceType, subType: t.subType })),
+      };
+      if (b.sellerLocationId == null) {
+        orgBundleRules.push(rule);
+      } else {
+        if (!locBundleOverrides.has(b.sellerLocationId)) locBundleOverrides.set(b.sellerLocationId, []);
+        locBundleOverrides.get(b.sellerLocationId)!.push(rule);
+      }
+    }
+  }
+
   // 5. Build location-level pricing reviews
   const locations: LocationPricingReview[] = sellerLocations.map((loc) => {
     const visitFees: LocationPricingReview["visitFees"] = [];
@@ -922,6 +962,16 @@ export async function loadLocationPricingReview(
       target[src.serviceType].push(item);
     }
 
+    // Resolve bundle pricing for this location
+    const locationBundles = locBundleOverrides.get(loc.id) ?? [];
+    const mergedBundles = mergeLocationBundles(orgBundleRules, locationBundles);
+    const allSubItems = [...Object.values(planPays).flat(), ...Object.values(patientPays).flat()].map((s) => ({
+      serviceType: s.serviceType,
+      subType: s.subType,
+      unitPrice: s.unitPrice,
+    }));
+    const bundleResult = resolveBundleRules(mergedBundles, allSubItems);
+
     const address = [loc.streetAddress, loc.city, loc.state, loc.zip].filter(Boolean).join(", ");
 
     return {
@@ -931,6 +981,8 @@ export async function loadLocationPricingReview(
       visitFees,
       planPays,
       patientPays,
+      bundlePricing: bundleResult.appliedBundles,
+      visitFeeAbsorbed: bundleResult.visitFeeAbsorbed,
     };
   });
 
@@ -948,6 +1000,8 @@ export interface BulkPricingReviewData {
   visitFees: { serviceType: string; label: string; price: number | null }[];
   planPays: Record<string, PricingReviewSubService[]>;
   patientPays: Record<string, PricingReviewSubService[]>;
+  bundlePricing: AppliedBundleReview[];
+  visitFeeAbsorbed: boolean;
   // Locations using org defaults (just display info)
   defaultLocations: { sellerLocationId: string; locationName: string; address: string }[];
   // Locations with overrides (full pricing detail)
@@ -972,6 +1026,7 @@ export async function loadBulkPricingReview(
         include: {
           visitPrices: true,
           subPrices: true,
+          bundles: { include: { targets: true }, orderBy: { createdAt: "asc" } },
         },
       },
     },
@@ -980,24 +1035,23 @@ export async function loadBulkPricingReview(
     throw new Error("Contract not found");
   }
 
-  // 1. Load affiliate's plan sub-services → covered set
+  // 1. Load affiliate's plan sub-services + seller name in parallel
   const programId = ctx.programId;
-  let coveredSubSet = new Set<string>();
-  if (programId) {
-    const coveredSubs = await prisma.subService.findMany({
-      where: { programId, selected: true },
-      select: { serviceType: true, subType: true },
-    });
-    coveredSubSet = new Set(coveredSubs.map((s) => `${s.serviceType}:${s.subType}`));
-  }
+  const [bulkCoveredSubs, seller] = await Promise.all([
+    programId
+      ? prisma.subService.findMany({
+          where: { programId, selected: true },
+          select: { serviceType: true, subType: true },
+        })
+      : Promise.resolve([]),
+    prisma.affiliate.findUnique({
+      where: { id: contract.sellerId },
+      select: { legalName: true },
+    }),
+  ]);
+  const coveredSubSet = new Set(bulkCoveredSubs.map((s) => `${s.serviceType}:${s.subType}`));
 
-  // 2. Load seller org name
-  const seller = await prisma.affiliate.findUnique({
-    where: { id: contract.sellerId },
-    select: { legalName: true },
-  });
-
-  // 3. Build visit price + sub-service sources (price list or org-level fallback)
+  // 2. Build visit price + sub-service sources (price list or org-level fallback)
   const visitPriceMap = new Map<string, number | null>();
   interface BulkSubSource { serviceType: string; subType: string; unitPrice: number | null }
   const subServiceSources: BulkSubSource[] = [];
@@ -1009,7 +1063,11 @@ export async function loadBulkPricingReview(
     // Verify the preview price list belongs to this seller
     priceListData = await prisma.sellerPriceList.findFirst({
       where: { id: previewPriceListId, affiliateId: contract.sellerId },
-      include: { visitPrices: true, subPrices: true },
+      include: {
+        visitPrices: true,
+        subPrices: true,
+        bundles: { include: { targets: true }, orderBy: { createdAt: "asc" } },
+      },
     });
     if (!priceListData) {
       throw new Error("Price list not found or not accessible");
@@ -1103,6 +1161,27 @@ export async function loadBulkPricingReview(
     }
   }
 
+  // 4c. Build bundle rule maps from price list
+  let bulkOrgBundleRules: BundleRuleWithTargets[] = [];
+  const bulkLocBundleOverrides = new Map<string, BundleRuleWithTargets[]>();
+  if (priceListData && effectivePriceListId && priceListData.bundles) {
+    for (const b of priceListData.bundles) {
+      const rule: BundleRuleWithTargets = {
+        name: b.name,
+        ruleType: b.ruleType as "flat_rate",
+        price: Number(b.price),
+        includesVisitFee: b.includesVisitFee,
+        targets: b.targets.map((t) => ({ serviceType: t.serviceType, subType: t.subType })),
+      };
+      if (b.sellerLocationId == null) {
+        bulkOrgBundleRules.push(rule);
+      } else {
+        if (!bulkLocBundleOverrides.has(b.sellerLocationId)) bulkLocBundleOverrides.set(b.sellerLocationId, []);
+        bulkLocBundleOverrides.get(b.sellerLocationId)!.push(rule);
+      }
+    }
+  }
+
   // 5. Classify locations: override vs default
   const defaultLocations: BulkPricingReviewData["defaultLocations"] = [];
   const overrideLocations: LocationPricingReview[] = [];
@@ -1110,11 +1189,12 @@ export async function loadBulkPricingReview(
   for (const loc of sellerLocations) {
     const address = [loc.streetAddress, loc.city, loc.state, loc.zip].filter(Boolean).join(", ");
 
-    // Check if location has any overrides: availability toggles OR location-specific price list rows
+    // Check if location has any overrides: availability toggles, price list rows, or bundle overrides
     const hasAvailabilityOverride = loc.serviceConfigs.some((sc) => !sc.available) ||
       loc.subServices.some((ls) => !ls.available);
     const hasPriceListOverride = locVisitOverrides.has(loc.id) || locSubOverrides.has(loc.id);
-    const hasOverrides = hasAvailabilityOverride || hasPriceListOverride;
+    const hasBundleOverride = bulkLocBundleOverrides.has(loc.id);
+    const hasOverrides = hasAvailabilityOverride || hasPriceListOverride || hasBundleOverride;
 
     if (!hasOverrides) {
       defaultLocations.push({
@@ -1157,6 +1237,16 @@ export async function loadBulkPricingReview(
         target[src.serviceType].push(item);
       }
 
+      // Resolve bundles for this location
+      const locationBundles = bulkLocBundleOverrides.get(loc.id) ?? [];
+      const mergedBundles = mergeLocationBundles(bulkOrgBundleRules, locationBundles);
+      const allSubItems = [...Object.values(planPays).flat(), ...Object.values(patientPays).flat()].map((s) => ({
+        serviceType: s.serviceType,
+        subType: s.subType,
+        unitPrice: s.unitPrice,
+      }));
+      const bundleResult = resolveBundleRules(mergedBundles, allSubItems);
+
       overrideLocations.push({
         sellerLocationId: loc.id,
         locationName: loc.locationName ?? "",
@@ -1164,15 +1254,27 @@ export async function loadBulkPricingReview(
         visitFees,
         planPays,
         patientPays,
+        bundlePricing: bundleResult.appliedBundles,
+        visitFeeAbsorbed: bundleResult.visitFeeAbsorbed,
       });
     }
   }
+
+  // Resolve org-level bundle pricing for default locations
+  const orgAllSubItems = [...Object.values(orgPlanPays).flat(), ...Object.values(orgPatientPays).flat()].map((s) => ({
+    serviceType: s.serviceType,
+    subType: s.subType,
+    unitPrice: s.unitPrice,
+  }));
+  const orgBundleResult = resolveBundleRules(bulkOrgBundleRules, orgAllSubItems);
 
   return {
     sellerName: seller?.legalName ?? "Unknown",
     visitFees: orgVisitFees,
     planPays: orgPlanPays,
     patientPays: orgPatientPays,
+    bundlePricing: orgBundleResult.appliedBundles,
+    visitFeeAbsorbed: orgBundleResult.visitFeeAbsorbed,
     defaultLocations,
     overrideLocations,
   };
@@ -1189,10 +1291,17 @@ export async function addLocationTermsBulk(
 ): Promise<void> {
   const ctx = await getSessionContext(selectedProgramId);
 
-  const contract = await prisma.networkContract.findUnique({
-    where: { id: contractId },
-    select: { affiliateId: true, sellerId: true, priceListId: true },
-  });
+  // Load contract + existing active terms in parallel
+  const [contract, existingActive] = await Promise.all([
+    prisma.networkContract.findUnique({
+      where: { id: contractId },
+      select: { affiliateId: true, sellerId: true, priceListId: true },
+    }),
+    prisma.networkContractTerm.findMany({
+      where: { contractId, sellerLocationId: { in: sellerLocationIds }, status: "ACTIVE" },
+      select: { sellerLocationId: true },
+    }),
+  ]);
   if (!contract || contract.affiliateId !== ctx.affiliateId) {
     throw new Error("Contract not found");
   }
@@ -1209,36 +1318,31 @@ export async function addLocationTermsBulk(
   }
 
   // Set price list on contract if provided and not already set (atomic to prevent race)
-  if (priceListId && !contract.priceListId) {
-    await prisma.networkContract.updateMany({
-      where: { id: contractId, priceListId: null },
-      data: { priceListId },
-    });
-  }
+  const priceListPromise = priceListId && !contract.priceListId
+    ? prisma.networkContract.updateMany({
+        where: { id: contractId, priceListId: null },
+        data: { priceListId },
+      })
+    : null;
 
   // Filter out locations that already have an active term to prevent duplicates
-  const existingActive = await prisma.networkContractTerm.findMany({
-    where: { contractId, sellerLocationId: { in: sellerLocationIds }, status: "ACTIVE" },
-    select: { sellerLocationId: true },
-  });
   const alreadyActive = new Set(existingActive.map((t) => t.sellerLocationId));
   const newLocationIds = sellerLocationIds.filter((id) => !alreadyActive.has(id));
 
-  if (newLocationIds.length > 0) {
-    await prisma.$transaction(
-      newLocationIds.map((sellerLocationId) =>
-        prisma.networkContractTerm.create({
-          data: {
-            contractId,
-            sellerLocationId,
-            status: "ACTIVE",
-            startDate: new Date(),
-            acceptedPricing: acceptedPricing as Prisma.InputJsonValue,
-            acceptedByUserId: ctx.userId,
-            updatedByUserId: ctx.userId,
-          },
-        }),
-      ),
-    );
-  }
+  // Run price list update + term creation in parallel
+  const createPromise = newLocationIds.length > 0
+    ? prisma.networkContractTerm.createMany({
+        data: newLocationIds.map((sellerLocationId) => ({
+          contractId,
+          sellerLocationId,
+          status: "ACTIVE",
+          startDate: new Date(),
+          acceptedPricing: acceptedPricing as Prisma.InputJsonValue,
+          acceptedByUserId: ctx.userId,
+          updatedByUserId: ctx.userId,
+        })),
+      })
+    : null;
+
+  await Promise.all([priceListPromise, createPromise].filter(Boolean));
 }

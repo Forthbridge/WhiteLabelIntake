@@ -89,6 +89,87 @@ test.describe("affiliate section 5: care network", () => {
     await expect(page.getByText("E2E Seller Location 2")).not.toBeVisible({ timeout: 3_000 });
   });
 
+  test("pricing review modal shows bundle pricing section", async ({ page }) => {
+    // Switch to list view and enable marketplace
+    await page.locator("button", { hasText: "List" }).click();
+    const marketplaceCheckbox = page.locator('input[name="show-marketplace"]');
+    await marketplaceCheckbox.check();
+    await expect(page.locator("p", { hasText: /^Available to Add/ })).toBeVisible({ timeout: 10_000 });
+
+    // Click "Add to Network" on first location
+    const addButton = page.locator("button", { hasText: "Add to Network" }).first();
+    await addButton.click();
+
+    // PricingReviewModal should open
+    const modal = page.locator(".fixed.inset-0").first();
+    await expect(modal).toBeVisible({ timeout: 5_000 });
+
+    // Wait for pricing to load
+    await expect(modal.locator('input[name="accept-pricing"]')).toBeVisible({ timeout: 15_000 });
+
+    // Bundle Pricing section should be visible with seeded bundles
+    await expect(modal.getByText("Bundle Pricing", { exact: true })).toBeVisible();
+    await expect(modal.getByText("Visits with procedures")).toBeVisible();
+    await expect(modal.getByText("Visits with labs")).toBeVisible();
+  });
+
+  test("bundle pricing defaults to collapsed with item count", async ({ page }) => {
+    // Switch to list view and enable marketplace
+    await page.locator("button", { hasText: "List" }).click();
+    await page.locator('input[name="show-marketplace"]').check();
+    await expect(page.locator("p", { hasText: /^Available to Add/ })).toBeVisible({ timeout: 10_000 });
+
+    // Open pricing modal
+    await page.locator("button", { hasText: "Add to Network" }).first().click();
+    const modal = page.locator(".fixed.inset-0").first();
+    await expect(modal.locator('input[name="accept-pricing"]')).toBeVisible({ timeout: 15_000 });
+
+    // Bundles should show item count and "Show items" toggle
+    await expect(modal.getByText(/\d+ items? included/).first()).toBeVisible();
+    await expect(modal.getByText("Show items").first()).toBeVisible();
+  });
+
+  test("clicking Show items expands bundle to reveal covered items", async ({ page }) => {
+    // Switch to list view and enable marketplace
+    await page.locator("button", { hasText: "List" }).click();
+    await page.locator('input[name="show-marketplace"]').check();
+    await expect(page.locator("p", { hasText: /^Available to Add/ })).toBeVisible({ timeout: 10_000 });
+
+    // Open pricing modal
+    await page.locator("button", { hasText: "Add to Network" }).first().click();
+    const modal = page.locator(".fixed.inset-0").first();
+    await expect(modal.locator('input[name="accept-pricing"]')).toBeVisible({ timeout: 15_000 });
+
+    // Click to expand the first bundle
+    const bundleButton = modal.locator("button", { hasText: "Visits with procedures" });
+    await bundleButton.click();
+
+    // Should now show "Hide items" instead
+    await expect(modal.getByText("Hide items")).toBeVisible();
+  });
+
+  test("bundle shows flat rate badge and price", async ({ page }) => {
+    // Switch to list view and enable marketplace
+    await page.locator("button", { hasText: "List" }).click();
+    await page.locator('input[name="show-marketplace"]').check();
+    await expect(page.locator("p", { hasText: /^Available to Add/ })).toBeVisible({ timeout: 10_000 });
+
+    // Open pricing modal
+    await page.locator("button", { hasText: "Add to Network" }).first().click();
+    const modal = page.locator(".fixed.inset-0").first();
+    await expect(modal.locator('input[name="accept-pricing"]')).toBeVisible({ timeout: 15_000 });
+
+    // Should show "flat rate" badge text
+    await expect(modal.getByText("flat rate").first()).toBeVisible();
+
+    // Should show prices
+    await expect(modal.getByText("$150.00")).toBeVisible();
+    await expect(modal.getByText("$140.00")).toBeVisible();
+
+    // Should show "incl. visit fee" for bundles that include it
+    await expect(modal.getByText("incl. visit fee").first()).toBeVisible();
+  });
+
   test("add location to network via pricing review", async ({ page }) => {
     // Switch to list view and enable marketplace
     await page.locator("button", { hasText: "List" }).click();

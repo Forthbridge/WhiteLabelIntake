@@ -47,21 +47,20 @@ test.describe("seller S-5: lab network", () => {
   });
 
   test("section shows complete after saving", async ({ page }) => {
-    // Check if quest radio is already checked (from previous test or fresh run)
-    const questRadio = page.locator('input[value="quest"]');
-    const isChecked = await questRadio.isChecked().catch(() => false);
-    const labCard = page.locator("h3", { hasText: "Lab Coordination Contact" }).locator("..");
-    const nameInput = labCard.locator("label", { hasText: "Name" }).locator("..").locator("input");
-    const currentValue = await nameInput.inputValue().catch(() => "");
+    // Always fill and save — don't rely on previous test state
+    await page.locator('input[value="quest"]').check();
 
-    if (!isChecked || !currentValue) {
-      await questRadio.check();
-      await nameInput.fill("Lab Coordinator");
-      await labCard.locator("label", { hasText: "Email" }).locator("..").locator("input").fill("lab@seller.com");
-      await labCard.locator("label", { hasText: "Phone" }).locator("..").locator("input").fill("555-0300");
-      await onboarding.clickNext();
-      await expect(onboarding.sectionHeading).not.toContainText("Lab Network", { timeout: 10_000 });
-    }
+    const labCard = page.locator("h3", { hasText: "Lab Coordination Contact" }).locator("..");
+    await labCard.locator("label", { hasText: "Name" }).locator("..").locator("input").fill("Lab Coordinator");
+    await labCard.locator("label", { hasText: "Email" }).locator("..").locator("input").fill("lab@seller.com");
+    await labCard.locator("label", { hasText: "Phone" }).locator("..").locator("input").fill("555-0300");
+
+    // Save via Next — this triggers saveSellerLab + status update
+    await onboarding.clickNext();
+    await expect(onboarding.sectionHeading).not.toContainText("Lab Network", { timeout: 10_000 });
+
+    // Reload to get fresh statuses from server (avoids client-side timing issues)
+    await onboarding.goto();
 
     const isComplete = await onboarding.isSectionComplete("Lab Network");
     expect(isComplete).toBe(true);

@@ -161,6 +161,22 @@ export async function seedTestData(): Promise<SeedResult> {
     },
   });
 
+  await prisma.sellerServiceOffering.create({
+    data: {
+      affiliateId: sellerAffiliate.id,
+      serviceType: "procedures",
+      selected: true,
+    },
+  });
+
+  await prisma.sellerServiceOffering.create({
+    data: {
+      affiliateId: sellerAffiliate.id,
+      serviceType: "imaging",
+      selected: true,
+    },
+  });
+
   // A few org-level sub-services with pricing
   await prisma.sellerOrgSubService.create({
     data: {
@@ -179,6 +195,27 @@ export async function seedTestData(): Promise<SeedResult> {
       subType: "hemoglobin-a1c",
       selected: true,
       unitPrice: 35.0,
+    },
+  });
+
+  // Procedure sub-services
+  await prisma.sellerOrgSubService.create({
+    data: {
+      affiliateId: sellerAffiliate.id,
+      serviceType: "procedures",
+      subType: "laceration-repair-simple",
+      selected: true,
+      unitPrice: 75.0,
+    },
+  });
+
+  await prisma.sellerOrgSubService.create({
+    data: {
+      affiliateId: sellerAffiliate.id,
+      serviceType: "procedures",
+      subType: "wound-debridement",
+      selected: true,
+      unitPrice: 85.0,
     },
   });
 
@@ -218,6 +255,61 @@ export async function seedTestData(): Promise<SeedResult> {
       subType: "hemoglobin-a1c",
       unitPrice: 35.0,
     },
+  });
+
+  // Price list sub-service prices for procedures
+  await prisma.sellerPriceListSubService.create({
+    data: {
+      priceListId: priceList.id,
+      serviceType: "procedures",
+      subType: "laceration-repair-simple",
+      unitPrice: 75.0,
+    },
+  });
+
+  await prisma.sellerPriceListSubService.create({
+    data: {
+      priceListId: priceList.id,
+      serviceType: "procedures",
+      subType: "wound-debridement",
+      unitPrice: 85.0,
+    },
+  });
+
+  // Bundle rule: flat-rate procedures bundle
+  const procBundle = await prisma.sellerPriceListBundle.create({
+    data: {
+      priceListId: priceList.id,
+      name: "Visits with procedures",
+      ruleType: "flat_rate",
+      price: 150.0,
+      capQuantity: null,
+      includesVisitFee: true,
+    },
+  });
+
+  await prisma.sellerPriceListBundleTarget.createMany({
+    data: [
+      { bundleId: procBundle.id, serviceType: "procedures", subType: null },
+    ],
+  });
+
+  // Bundle rule: flat-rate labs bundle
+  const labsBundle = await prisma.sellerPriceListBundle.create({
+    data: {
+      priceListId: priceList.id,
+      name: "Visits with labs",
+      ruleType: "flat_rate",
+      price: 140.0,
+      capQuantity: null,
+      includesVisitFee: true,
+    },
+  });
+
+  await prisma.sellerPriceListBundleTarget.createMany({
+    data: [
+      { bundleId: labsBundle.id, serviceType: "labs", subType: null },
+    ],
   });
 
   // Seller onboarding flow (DRAFT)
@@ -330,10 +422,17 @@ export async function teardownTestData(): Promise<void> {
     .map((u) => u.affiliateId)
     .filter((id): id is string => id !== null);
 
+  // Also find orphaned affiliates with no legalName and no users (left behind by crashed test runs)
+  const orphanedAffiliates = await prisma.affiliate.findMany({
+    where: { legalName: null, users: { none: {} } },
+    select: { id: true },
+  });
+
   const affIds = [
     ...new Set([
       ...e2eAffiliates.map((a) => a.id),
       ...userAffIds,
+      ...orphanedAffiliates.map((a) => a.id),
     ]),
   ];
   const userIds = e2eUsers.map((u) => u.id);
@@ -365,6 +464,16 @@ export async function teardownTestData(): Promise<void> {
           { sellerId: { in: affIds } },
         ],
       },
+    }),
+
+    // Price list bundle targets
+    prisma.sellerPriceListBundleTarget.deleteMany({
+      where: { bundle: { priceList: { affiliateId: { in: affIds } } } },
+    }),
+
+    // Price list bundles
+    prisma.sellerPriceListBundle.deleteMany({
+      where: { priceList: { affiliateId: { in: affIds } } },
     }),
 
     // Price list sub-service prices

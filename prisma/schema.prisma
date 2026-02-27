@@ -658,6 +658,7 @@ model SellerLocation {
   subServices              SellerLocationSubService[]
   priceListVisitOverrides  SellerPriceListVisit[]
   priceListSubOverrides    SellerPriceListSubService[]
+  priceListBundles         SellerPriceListBundle[]
   contractTerms            NetworkContractTerm[]
 
   createdAt DateTime @default(now())
@@ -786,6 +787,7 @@ model SellerPriceList {
 
   visitPrices SellerPriceListVisit[]
   subPrices   SellerPriceListSubService[]
+  bundles     SellerPriceListBundle[]
   rules       SellerPriceListRule[]
   contracts   NetworkContract[]
 
@@ -835,6 +837,37 @@ model SellerPriceListRule {
 
   @@unique([priceListId, buyerId, programId])
   @@map("seller_price_list_rules")
+}
+
+// ─── Seller Price List Bundles ──────────────────────────────────
+
+model SellerPriceListBundle {
+  id               String          @id @default(cuid())
+  priceListId      String
+  priceList        SellerPriceList @relation(fields: [priceListId], references: [id], onDelete: Cascade)
+  name             String
+  ruleType         String          // "flat_rate" | "capped"
+  price            Decimal         @db.Decimal(10, 2)
+  capQuantity      Int?            // only for "capped": max items at bundle price
+  includesVisitFee Boolean         @default(false)
+  sellerLocationId String?
+  sellerLocation   SellerLocation? @relation(fields: [sellerLocationId], references: [id], onDelete: Cascade)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  targets          SellerPriceListBundleTarget[]
+
+  @@map("seller_price_list_bundles")
+}
+
+model SellerPriceListBundleTarget {
+  id          String                @id @default(cuid())
+  bundleId    String
+  bundle      SellerPriceListBundle @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  serviceType String
+  subType     String?
+
+  @@unique([bundleId, serviceType, subType])
+  @@map("seller_price_list_bundle_targets")
 }
 
 // ─── Section Review Confirmations ───────────────────────────────

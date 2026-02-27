@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { loadLocationPricingReview, loadBulkPricingReview, addLocationTermsBulk, getContractInfo } from "@/lib/actions/network";
 import { loadEligiblePriceLists } from "@/lib/actions/price-list";
-import type { LocationPricingReview, PricingReviewSubService, BulkPricingReviewData, ContractInfo } from "@/lib/actions/network";
+import type { LocationPricingReview, PricingReviewSubService, BulkPricingReviewData, ContractInfo, AppliedBundleReview } from "@/lib/actions/network";
 import type { EligiblePriceList } from "@/lib/actions/price-list";
 import { SELLER_SERVICE_TYPES } from "@/lib/validations/seller-services";
 import { SERVICE_TYPES } from "@/lib/validations/section3";
@@ -162,6 +162,91 @@ function VisitFeesSection({ visitFees }: { visitFees: { serviceType: string; lab
   );
 }
 
+// ─── Bundle Pricing display ─────────────────────────────────────────────
+function BundlePricingSection({
+  bundles,
+  visitFeeAbsorbed,
+  expandedCategories,
+  toggleCategory,
+  keyPrefix,
+}: {
+  bundles: AppliedBundleReview[];
+  visitFeeAbsorbed: boolean;
+  expandedCategories: Set<string>;
+  toggleCategory: (key: string) => void;
+  keyPrefix: string;
+}) {
+  if (bundles.length === 0) return null;
+  return (
+    <div>
+      <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide mb-1.5">
+        Bundle Pricing
+      </p>
+      <div className="border border-blue-200 rounded-lg bg-blue-50/30 overflow-hidden">
+        {bundles.map((bundle, i) => {
+          const bundleKey = `${keyPrefix}:bundle:${i}`;
+          const isExpanded = expandedCategories.has(bundleKey);
+          return (
+            <div
+              key={i}
+              className={i > 0 ? "border-t border-blue-100" : ""}
+            >
+              <button
+                type="button"
+                onClick={() => toggleCategory(bundleKey)}
+                className="w-full text-left px-3 py-2 hover:bg-blue-50/50 transition-colors"
+              >
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-sm font-medium text-foreground truncate">{bundle.name}</span>
+                    <span className="text-xs text-blue-600 flex-shrink-0">flat rate</span>
+                    {bundle.includesVisitFee && (
+                      <span className="text-xs bg-blue-100 text-blue-700 rounded px-1.5 py-0.5 flex-shrink-0">
+                        incl. visit fee
+                      </span>
+                    )}
+                  </div>
+                  <span className="font-medium text-sm text-foreground flex-shrink-0 ml-2">
+                    ${bundle.price.toFixed(2)}
+                  </span>
+                </div>
+                {bundle.coveredItems.length > 0 && (
+                  <div className="flex items-center justify-between mt-1">
+                    <span className="text-xs text-blue-600">
+                      {bundle.coveredItems.length} item{bundle.coveredItems.length !== 1 ? "s" : ""} included
+                    </span>
+                    <span className="text-xs text-muted">
+                      {isExpanded ? "Hide items" : "Show items"}
+                    </span>
+                  </div>
+                )}
+              </button>
+              {isExpanded && bundle.coveredItems.length > 0 && (
+                <div className="px-3 pb-2 pt-0.5">
+                  <div className="flex flex-wrap gap-1">
+                    {bundle.coveredItems.map((item, j) => (
+                      <span key={j} className="text-xs text-blue-600 bg-blue-50 rounded px-1.5 py-0.5">
+                        {item.subType
+                          ? getSubServiceLabel(item.serviceType, item.subType)
+                          : getServiceLabel(item.serviceType)}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {visitFeeAbsorbed && (
+        <p className="text-xs text-blue-600 mt-1 italic">
+          Visit fee is included in bundle pricing above.
+        </p>
+      )}
+    </div>
+  );
+}
+
 // ─── Single-location pricing detail ─────────────────────────────────────
 function LocationPricingDetail({
   loc,
@@ -183,7 +268,14 @@ function LocationPricingDetail({
 
   return (
     <div className="flex flex-col gap-3">
-      <VisitFeesSection visitFees={loc.visitFees} />
+      <VisitFeesSection visitFees={loc.visitFeeAbsorbed ? [] : loc.visitFees} />
+      <BundlePricingSection
+        bundles={loc.bundlePricing}
+        visitFeeAbsorbed={loc.visitFeeAbsorbed}
+        expandedCategories={expandedCategories}
+        toggleCategory={toggleCategory}
+        keyPrefix={loc.sellerLocationId}
+      />
       <SubServiceCategories
         label="Plan Pays"
         colorScheme="emerald"
@@ -203,7 +295,7 @@ function LocationPricingDetail({
         keyPrefix={`${loc.sellerLocationId}:patient`}
         countMode="items"
       />
-      {loc.visitFees.length === 0 && Object.keys(loc.planPays).length === 0 && Object.keys(loc.patientPays).length === 0 && (
+      {loc.visitFees.length === 0 && loc.bundlePricing.length === 0 && Object.keys(loc.planPays).length === 0 && Object.keys(loc.patientPays).length === 0 && (
         <p className="text-sm text-muted italic mt-2">Pricing not yet configured by seller.</p>
       )}
     </div>
@@ -446,6 +538,8 @@ export function PricingReviewModal({ contractId, sellerLocationIds, sellerName, 
             visitFees: bulkData.visitFees,
             planPays: bulkData.planPays,
             patientPays: bulkData.patientPays,
+            bundlePricing: bulkData.bundlePricing,
+            visitFeeAbsorbed: bulkData.visitFeeAbsorbed,
           },
           defaultLocations: bulkData.defaultLocations.map((loc) => ({
             sellerLocationId: loc.sellerLocationId,
@@ -458,6 +552,8 @@ export function PricingReviewModal({ contractId, sellerLocationIds, sellerName, 
             visitFees: loc.visitFees,
             planPays: loc.planPays,
             patientPays: loc.patientPays,
+            bundlePricing: loc.bundlePricing,
+            visitFeeAbsorbed: loc.visitFeeAbsorbed,
           })),
           priceListId: selectedPriceListId ?? undefined,
           snapshotAt: new Date().toISOString(),
@@ -470,6 +566,8 @@ export function PricingReviewModal({ contractId, sellerLocationIds, sellerName, 
             visitFees: loc.visitFees,
             planPays: loc.planPays,
             patientPays: loc.patientPays,
+            bundlePricing: loc.bundlePricing,
+            visitFeeAbsorbed: loc.visitFeeAbsorbed,
           })),
           priceListId: selectedPriceListId ?? undefined,
           snapshotAt: new Date().toISOString(),
@@ -496,15 +594,18 @@ export function PricingReviewModal({ contractId, sellerLocationIds, sellerName, 
   // Detect no-pricing state (safety net — card-level guard is primary)
   const hasNoPricing = !isBulk && locations.length > 0 && locations.every(loc =>
     loc.visitFees.length === 0 &&
+    loc.bundlePricing.length === 0 &&
     Object.keys(loc.planPays).length === 0 &&
     Object.keys(loc.patientPays).length === 0
   );
   const hasNoPricingBulk = isBulk && bulkData != null &&
     bulkData.visitFees.length === 0 &&
+    bulkData.bundlePricing.length === 0 &&
     Object.keys(bulkData.planPays).length === 0 &&
     Object.keys(bulkData.patientPays).length === 0 &&
     bulkData.overrideLocations.every(loc =>
       loc.visitFees.length === 0 &&
+      loc.bundlePricing.length === 0 &&
       Object.keys(loc.planPays).length === 0 &&
       Object.keys(loc.patientPays).length === 0
     );
@@ -564,7 +665,14 @@ export function PricingReviewModal({ contractId, sellerLocationIds, sellerName, 
                 <>
                   {/* Org-level pricing summary */}
                   <div className="flex flex-col gap-3">
-                    <VisitFeesSection visitFees={bulkData.visitFees} />
+                    <VisitFeesSection visitFees={bulkData.visitFeeAbsorbed ? [] : bulkData.visitFees} />
+                    <BundlePricingSection
+                      bundles={bulkData.bundlePricing}
+                      visitFeeAbsorbed={bulkData.visitFeeAbsorbed}
+                      expandedCategories={expandedCategories}
+                      toggleCategory={toggleCategory}
+                      keyPrefix="org"
+                    />
                     <SubServiceCategories
                       label="Plan Pays"
                       colorScheme="emerald"
@@ -584,7 +692,7 @@ export function PricingReviewModal({ contractId, sellerLocationIds, sellerName, 
                       keyPrefix="org:patient"
                       countMode="items"
                     />
-                    {bulkData.visitFees.length === 0 && Object.keys(bulkData.planPays).length === 0 && Object.keys(bulkData.patientPays).length === 0 && (
+                    {bulkData.visitFees.length === 0 && bulkData.bundlePricing.length === 0 && Object.keys(bulkData.planPays).length === 0 && Object.keys(bulkData.patientPays).length === 0 && (
                       <p className="text-sm text-muted italic mt-2">Pricing not yet configured by seller.</p>
                     )}
                   </div>

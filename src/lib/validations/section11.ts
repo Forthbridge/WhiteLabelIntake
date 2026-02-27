@@ -314,6 +314,45 @@ export const SUB_SERVICE_TYPES: Record<string, SubServiceItem[]> = {
     { value: "over-the-counter", label: "Over-the-Counter (OTC)" },
     { value: "compound-pharmacy", label: "Compound Pharmacy" },
   ],
+
+  procedures: [
+    // Wound Care
+    { value: "laceration-repair-simple", label: "Laceration Repair (Simple)", group: "Wound Care" },
+    { value: "laceration-repair-complex", label: "Laceration Repair (Complex)", group: "Wound Care" },
+    { value: "wound-debridement", label: "Wound Debridement", group: "Wound Care" },
+    { value: "tissue-adhesive", label: "Tissue Adhesive (Dermabond)", group: "Wound Care" },
+    { value: "suture-removal", label: "Suture / Staple Removal", group: "Wound Care" },
+    { value: "abscess-incision-drainage", label: "Abscess Incision & Drainage", group: "Wound Care" },
+    { value: "foreign-body-removal", label: "Foreign Body Removal", group: "Wound Care" },
+    { value: "burn-care", label: "Burn Care / Dressing", group: "Wound Care" },
+    // Minor Surgical
+    { value: "skin-biopsy", label: "Skin Biopsy", group: "Minor Surgical" },
+    { value: "lesion-removal-shave", label: "Lesion Removal (Shave)", group: "Minor Surgical" },
+    { value: "lesion-removal-cryotherapy", label: "Lesion / Wart Removal (Cryotherapy)", group: "Minor Surgical" },
+    { value: "skin-tag-removal", label: "Skin Tag Removal", group: "Minor Surgical" },
+    { value: "mole-removal", label: "Mole Removal (Excision)", group: "Minor Surgical" },
+    { value: "nail-removal-partial", label: "Nail Removal (Partial)", group: "Minor Surgical" },
+    { value: "nail-removal-complete", label: "Nail Removal (Complete)", group: "Minor Surgical" },
+    { value: "ingrown-toenail", label: "Ingrown Toenail Treatment", group: "Minor Surgical" },
+    // Orthopedic
+    { value: "splint-application", label: "Splint Application", group: "Orthopedic" },
+    { value: "fracture-reduction", label: "Fracture Reduction (Closed)", group: "Orthopedic" },
+    { value: "dislocation-reduction", label: "Dislocation Reduction", group: "Orthopedic" },
+    { value: "joint-aspiration", label: "Joint Aspiration (Arthrocentesis)", group: "Orthopedic" },
+    { value: "joint-injection", label: "Joint / Bursa Injection", group: "Orthopedic" },
+    { value: "trigger-point-injection", label: "Trigger Point Injection", group: "Orthopedic" },
+    // Diagnostic
+    { value: "ekg", label: "Electrocardiogram (EKG)", group: "Diagnostic" },
+    { value: "spirometry", label: "Spirometry", group: "Diagnostic" },
+    { value: "ear-lavage", label: "Ear Lavage / Cerumen Removal", group: "Diagnostic" },
+    { value: "epistaxis-management", label: "Epistaxis Management / Cautery", group: "Diagnostic" },
+    { value: "nasal-foreign-body", label: "Nasal Foreign Body Removal", group: "Diagnostic" },
+    // Injections & Nerve Blocks
+    { value: "nerve-block", label: "Nerve Block (Local Anesthesia)", group: "Injections & Nerve Blocks" },
+    { value: "digital-block", label: "Digital Block (Finger / Toe)", group: "Injections & Nerve Blocks" },
+    { value: "im-injection", label: "Intramuscular Injection", group: "Injections & Nerve Blocks" },
+    { value: "sc-injection", label: "Subcutaneous Injection", group: "Injections & Nerve Blocks" },
+  ],
 };
 
 // ─── Zod Schema ──────────────────────────────────────────────────────

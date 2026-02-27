@@ -129,6 +129,14 @@ src/
 - Roles: `SUPER_ADMIN` → `/admin`, `ADMIN`/`COLLABORATOR` → `/onboarding`
 - Server actions use `getSessionContext()` which calls `auth()` — only middleware uses `getToken`
 
+## Rules: Git & Branch Protection
+
+- `main` branch has GitHub branch protection — **no direct pushes allowed**
+- All changes to `main` must go through a pull request with required "e2e" status check
+- Workflow: create a branch from `main`, push the branch, open a PR via `gh pr create`
+- Pre-push hook runs E2E tests (`npm run test:e2e`) — dev server must be running on port 3000 before pushing
+- If E2E tests fail on push due to no dev server, start it with `npm run dev` first — do NOT use `--no-verify`
+
 ## Rules: Deployment (Vercel)
 
 - Project: `hop-aboard` in `joes-projects-48865212` scope

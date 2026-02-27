@@ -17,6 +17,7 @@ export const SERVICE_TYPES = [
   { value: "imaging", label: "Imaging" },
   { value: "immunizations", label: "Immunizations" },
   { value: "dme", label: "Durable Medical Equipment (DME)" },
+  { value: "procedures", label: "Procedures" },
   { value: "bundled_surgeries", label: "Bundled Surgeries" },
   { value: "specialist_care", label: "Specialist Care" },
   { value: "physical_therapy", label: "Physical Therapy" },

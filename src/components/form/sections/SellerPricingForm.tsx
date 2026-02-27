@@ -9,7 +9,7 @@ import { saveSellerPricing } from "@/lib/actions/seller-pricing";
 import { listPriceLists, loadPriceList, savePriceList, deletePriceList, duplicatePriceList, loadBuyerOrgs } from "@/lib/actions/price-list";
 import type { PriceListSummary, PriceListDetail, BuyerOrgOption } from "@/lib/actions/price-list";
 import type { SellerPricingData } from "@/lib/validations/seller-pricing";
-import type { PriceListData } from "@/lib/validations/price-list";
+import type { PriceListData, BundleRuleData } from "@/lib/validations/price-list";
 import type { Section11Data } from "@/lib/validations/section11";
 import { SUB_SERVICE_TYPES, getSubServiceLabel } from "@/lib/validations/section11";
 import { SELLER_SERVICE_TYPES } from "@/lib/validations/seller-services";
@@ -44,6 +44,396 @@ function getServiceLabel(serviceType: string): string {
     SELLER_SERVICE_TYPES.find((st) => st.value === serviceType)?.label ??
     SERVICE_TYPES.find((st) => st.value === serviceType)?.label ??
     serviceType
+  );
+}
+
+// ─── Bundle Rules Editor ─────────────────────────────────────────────
+
+function BundleRulesEditor({
+  bundleRules,
+  onChange,
+  serviceSelections,
+  disabled,
+}: {
+  bundleRules: BundleRuleData[];
+  onChange: (rules: BundleRuleData[]) => void;
+  serviceSelections: ServiceSelection[];
+  disabled?: boolean;
+}) {
+  const [expandedRules, setExpandedRules] = useState<Set<number>>(new Set());
+  const [openSubMenus, setOpenSubMenus] = useState<Set<string>>(new Set());
+
+  const selectedServices = serviceSelections.filter((s) => s.selected);
+
+  function toggleRule(idx: number) {
+    setExpandedRules((prev) => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx); else next.add(idx);
+      return next;
+    });
+  }
+
+  function addRule() {
+    const newIdx = bundleRules.length;
+    onChange([
+      ...bundleRules,
+      {
+        name: "",
+        ruleType: "flat_rate",
+        price: 0,
+        includesVisitFee: false,
+        targets: [],
+      },
+    ]);
+    setExpandedRules((prev) => new Set([...prev, newIdx]));
+  }
+
+  function removeRule(idx: number) {
+    onChange(bundleRules.filter((_, i) => i !== idx));
+    setExpandedRules((prev) => {
+      const next = new Set<number>();
+      for (const v of prev) {
+        if (v < idx) next.add(v);
+        else if (v > idx) next.add(v - 1);
+      }
+      return next;
+    });
+  }
+
+  function updateRule(idx: number, patch: Partial<BundleRuleData>) {
+    onChange(bundleRules.map((r, i) => i === idx ? { ...r, ...patch } : r));
+  }
+
+  function addServiceCategory(ruleIdx: number) {
+    const rule = bundleRules[ruleIdx];
+    // Find first service type not already targeted
+    const usedTypes = new Set(rule.targets.map((t) => t.serviceType));
+    const available = selectedServices.find((s) => !usedTypes.has(s.serviceType));
+    const serviceType = available?.serviceType ?? selectedServices[0]?.serviceType ?? "";
+    updateRule(ruleIdx, {
+      targets: [...rule.targets, { serviceType, subType: null }],
+    });
+  }
+
+  function removeServiceCategory(ruleIdx: number, serviceType: string) {
+    const rule = bundleRules[ruleIdx];
+    updateRule(ruleIdx, {
+      targets: rule.targets.filter((t) => t.serviceType !== serviceType),
+    });
+  }
+
+  function toggleSubService(ruleIdx: number, serviceType: string, subValue: string | null) {
+    const rule = bundleRules[ruleIdx];
+    const subOptions = SUB_SERVICE_TYPES[serviceType] ?? [];
+
+    if (subValue === null) {
+      // Toggle "Entire category" — replace all targets for this service type with one category target
+      const hasCategory = rule.targets.some((t) => t.serviceType === serviceType && t.subType == null);
+      let newTargets: typeof rule.targets;
+      if (hasCategory) {
+        // Remove category target (deselect entire category)
+        newTargets = rule.targets.filter((t) => t.serviceType !== serviceType);
+      } else {
+        // Set to entire category — remove individual sub-service targets, add category
+        newTargets = [
+          ...rule.targets.filter((t) => t.serviceType !== serviceType),
+          { serviceType, subType: null },
+        ];
+      }
+      updateRule(ruleIdx, { targets: newTargets });
+    } else {
+      // Toggle individual sub-service
+      const hasCategory = rule.targets.some((t) => t.serviceType === serviceType && t.subType == null);
+      const existing = rule.targets.find((t) => t.serviceType === serviceType && t.subType === subValue);
+
+      let newTargets: typeof rule.targets;
+      if (hasCategory) {
+        // Was "entire category" — switch to all-except-this-one selected individually
+        const allSubs = subOptions.map((s) => s.value);
+        newTargets = [
+          ...rule.targets.filter((t) => t.serviceType !== serviceType),
+          ...allSubs.filter((v) => v !== subValue).map((v) => ({ serviceType, subType: v })),
+        ];
+      } else if (existing) {
+        // Deselect this sub-service
+        newTargets = rule.targets.filter((t) => !(t.serviceType === serviceType && t.subType === subValue));
+        // If nothing left for this service type, remove the category entirely
+        if (!newTargets.some((t) => t.serviceType === serviceType)) {
+          // keep as-is — category row will show with nothing selected
+        }
+      } else {
+        // Select this sub-service
+        const updated = [...rule.targets, { serviceType, subType: subValue }];
+        // Check if all sub-services are now selected → upgrade to "entire category"
+        const selectedForType = updated.filter((t) => t.serviceType === serviceType && t.subType != null);
+        if (selectedForType.length === subOptions.length) {
+          newTargets = [
+            ...updated.filter((t) => t.serviceType !== serviceType),
+            { serviceType, subType: null },
+          ];
+        } else {
+          newTargets = updated;
+        }
+      }
+      updateRule(ruleIdx, { targets: newTargets });
+    }
+  }
+
+  function changeServiceType(ruleIdx: number, oldServiceType: string, newServiceType: string) {
+    const rule = bundleRules[ruleIdx];
+    updateRule(ruleIdx, {
+      targets: rule.targets.map((t) =>
+        t.serviceType === oldServiceType ? { serviceType: newServiceType, subType: null } : t
+      ),
+    });
+  }
+
+  if (bundleRules.length === 0) {
+    return (
+      <Card>
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-base font-heading font-semibold">Bundle Pricing Rules</h3>
+            <p className="text-xs text-muted mt-1">
+              No bundle rules defined. Add a rule to create flat-rate pricing packages.
+            </p>
+          </div>
+          <Button variant="secondary" type="button" onClick={addRule} disabled={disabled} className="!text-xs !py-1.5 !px-3 flex-shrink-0">
+            + Add Rule
+          </Button>
+        </div>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-base font-heading font-semibold">Bundle Pricing Rules</h3>
+        <Button variant="secondary" type="button" onClick={addRule} disabled={disabled} className="!text-xs !py-1.5 !px-3">
+          + Add Rule
+        </Button>
+      </div>
+      <div className="space-y-3">
+        {bundleRules.map((rule, idx) => {
+          const isExpanded = expandedRules.has(idx);
+          return (
+            <div key={idx} className="border border-border rounded-lg">
+              <button
+                type="button"
+                className="w-full text-left flex items-center justify-between p-3"
+                onClick={() => toggleRule(idx)}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-sm font-medium text-foreground truncate">
+                    {rule.name || "Untitled Rule"}
+                  </span>
+                  <span className="text-xs text-muted flex-shrink-0">
+                    Flat Rate · ${rule.price.toFixed(2)}
+                    {rule.targets.length > 0 && ` · ${rule.targets.length} service${rule.targets.length !== 1 ? "s" : ""}`}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => { e.stopPropagation(); if (!disabled) removeRule(idx); }}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); if (!disabled) removeRule(idx); } }}
+                    className={`text-xs text-muted hover:text-error cursor-pointer ${disabled ? "pointer-events-none opacity-50" : ""}`}
+                  >
+                    Remove
+                  </span>
+                  <svg className={`w-4 h-4 text-muted transition-transform ${isExpanded ? "rotate-180" : ""}`} viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
+                  </svg>
+                </div>
+              </button>
+              {isExpanded && (
+                <div className="px-3 pb-3 space-y-3 border-t border-border/50 pt-3">
+                  {/* Name */}
+                  <div>
+                    <label className="text-xs font-medium text-foreground block mb-1">Bundle Name</label>
+                    <Input
+                      value={rule.name}
+                      onChange={(e) => updateRule(idx, { name: e.target.value })}
+                      placeholder='e.g. "Visit + Laceration", "All DME Flat"'
+                      disabled={disabled}
+                    />
+                  </div>
+
+                  {/* Price */}
+                  <div>
+                    <label className="text-xs font-medium text-foreground block mb-1">Bundle Price</label>
+                    <div className="relative max-w-xs">
+                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted text-xs pointer-events-none">$</span>
+                      <input
+                        type="number" min="0" step="0.01"
+                        className="w-full bg-transparent border border-border rounded-[var(--radius-input)] pl-6 pr-2 py-2 text-sm text-right focus:border-focus focus:ring-0"
+                        value={rule.price || ""}
+                        onChange={(e) => {
+                          const num = e.target.value === "" ? 0 : parseFloat(e.target.value);
+                          updateRule(idx, { price: isNaN(num) ? 0 : num });
+                        }}
+                        disabled={disabled}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Includes visit fee toggle */}
+                  <div className="flex items-center gap-3">
+                    <label className="text-sm text-foreground">Includes visit fee</label>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={rule.includesVisitFee}
+                      onClick={() => { if (!disabled) updateRule(idx, { includesVisitFee: !rule.includesVisitFee }); }}
+                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                        rule.includesVisitFee ? "bg-brand-teal" : "bg-gray-300"
+                      } ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                    >
+                      <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${
+                        rule.includesVisitFee ? "translate-x-[18px]" : "translate-x-[3px]"
+                      }`} />
+                    </button>
+                    <span className="text-xs text-muted">{rule.includesVisitFee ? "On" : "Off"}</span>
+                  </div>
+
+                  {/* Services Included */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-xs font-medium text-foreground">Services Included</label>
+                      <button
+                        type="button"
+                        onClick={() => addServiceCategory(idx)}
+                        disabled={disabled}
+                        className="text-xs text-brand-teal hover:text-brand-teal/80 font-medium disabled:opacity-50"
+                      >
+                        + Add Service
+                      </button>
+                    </div>
+                    {rule.targets.length === 0 && (
+                      <p className="text-xs text-muted italic">No services included. Add at least one service category or sub-service.</p>
+                    )}
+                    <div className="space-y-2">
+                      {/* Group targets by serviceType for display */}
+                      {(() => {
+                        const grouped = new Map<string, Array<{ serviceType: string; subType: string | null }>>();
+                        for (const t of rule.targets) {
+                          if (!grouped.has(t.serviceType)) grouped.set(t.serviceType, []);
+                          grouped.get(t.serviceType)!.push({ serviceType: t.serviceType, subType: t.subType ?? null });
+                        }
+                        return Array.from(grouped.entries()).map(([serviceType, targets]) => {
+                          const subOptions = SUB_SERVICE_TYPES[serviceType] ?? [];
+                          const hasCategory = targets.some((t) => t.subType == null);
+                          const selectedSubs = new Set(targets.filter((t) => t.subType != null).map((t) => t.subType!));
+                          const menuKey = `${idx}:${serviceType}`;
+                          const isMenuOpen = openSubMenus.has(menuKey);
+
+                          // Summary label for the multi-select button
+                          let selectionLabel: string;
+                          if (hasCategory) {
+                            selectionLabel = "Entire category";
+                          } else if (selectedSubs.size === 0) {
+                            selectionLabel = "Select sub-services...";
+                          } else if (selectedSubs.size <= 2) {
+                            selectionLabel = Array.from(selectedSubs)
+                              .map((v) => subOptions.find((s) => s.value === v)?.label ?? v)
+                              .join(", ");
+                          } else {
+                            selectionLabel = `${selectedSubs.size} sub-services selected`;
+                          }
+
+                          return (
+                            <div key={serviceType} className="flex items-start gap-2">
+                              <select
+                                value={serviceType}
+                                onChange={(e) => changeServiceType(idx, serviceType, e.target.value)}
+                                className="flex-1 bg-transparent border border-border rounded px-2 py-1.5 text-xs focus:border-focus focus:ring-0"
+                                disabled={disabled}
+                              >
+                                <option value="">Select service...</option>
+                                {selectedServices.map((s) => (
+                                  <option key={s.serviceType} value={s.serviceType}>
+                                    {getServiceLabel(s.serviceType)}
+                                  </option>
+                                ))}
+                              </select>
+                              {/* Multi-select sub-service dropdown */}
+                              <div className="flex-1 relative">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setOpenSubMenus((prev) => {
+                                      const next = new Set(prev);
+                                      if (next.has(menuKey)) next.delete(menuKey);
+                                      else { next.clear(); next.add(menuKey); }
+                                      return next;
+                                    });
+                                  }}
+                                  disabled={disabled}
+                                  className="w-full bg-transparent border border-border rounded px-2 py-1.5 text-xs text-left focus:border-focus focus:ring-0 flex items-center justify-between gap-1 disabled:opacity-50"
+                                >
+                                  <span className={`truncate ${hasCategory || selectedSubs.size > 0 ? "text-foreground" : "text-muted"}`}>
+                                    {selectionLabel}
+                                  </span>
+                                  <svg className={`w-3 h-3 text-muted flex-shrink-0 transition-transform ${isMenuOpen ? "rotate-180" : ""}`} viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
+                                  </svg>
+                                </button>
+                                {isMenuOpen && (
+                                  <>
+                                    <div className="fixed inset-0 z-10" onClick={() => setOpenSubMenus(new Set())} />
+                                    <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white border border-border rounded-lg shadow-lg max-h-56 overflow-y-auto">
+                                      {/* Entire category option */}
+                                      <label className="flex items-center gap-2 px-2.5 py-1.5 text-xs hover:bg-gray-50 cursor-pointer border-b border-border/30">
+                                        <input
+                                          type="checkbox"
+                                          checked={hasCategory}
+                                          onChange={() => toggleSubService(idx, serviceType, null)}
+                                          className="rounded border-border text-brand-teal focus:ring-brand-teal/30"
+                                        />
+                                        <span className="font-medium">Entire category</span>
+                                      </label>
+                                      {subOptions.map((sub) => (
+                                        <label
+                                          key={sub.value}
+                                          className="flex items-center gap-2 px-2.5 py-1.5 text-xs hover:bg-gray-50 cursor-pointer"
+                                        >
+                                          <input
+                                            type="checkbox"
+                                            checked={hasCategory || selectedSubs.has(sub.value)}
+                                            disabled={hasCategory}
+                                            onChange={() => toggleSubService(idx, serviceType, sub.value)}
+                                            className="rounded border-border text-brand-teal focus:ring-brand-teal/30 disabled:opacity-40"
+                                          />
+                                          <span className={hasCategory ? "text-muted" : ""}>{sub.label}</span>
+                                        </label>
+                                      ))}
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => removeServiceCategory(idx, serviceType)}
+                                disabled={disabled}
+                                className="text-muted hover:text-error text-xs disabled:opacity-50 flex-shrink-0 mt-1"
+                              >
+                                &times;
+                              </button>
+                            </div>
+                          );
+                        });
+                      })()}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </Card>
   );
 }
 
@@ -354,6 +744,14 @@ function PriceListEditor({
         );
       })}
 
+      {/* Bundle Pricing Rules */}
+      <BundleRulesEditor
+        bundleRules={data.bundleRules ?? []}
+        onChange={(rules) => setData((prev) => ({ ...prev, bundleRules: rules }))}
+        serviceSelections={serviceSelections}
+        disabled={disabled}
+      />
+
       {/* Location-Specific Pricing Overrides */}
       {sellerLocations && sellerLocations.length > 0 && (
         <Card>
@@ -562,6 +960,24 @@ function PriceListEditor({
                             </div>
                           );
                         })}
+                        {/* Location-specific bundle rules */}
+                        <div className="mt-3">
+                          <BundleRulesEditor
+                            bundleRules={locOverride.bundleRules ?? []}
+                            onChange={(rules) => {
+                              setData((prev) => ({
+                                ...prev,
+                                locationOverrides: (prev.locationOverrides ?? []).map((lo) =>
+                                  lo.sellerLocationId === locOverride.sellerLocationId
+                                    ? { ...lo, bundleRules: rules }
+                                    : lo
+                                ),
+                              }));
+                            }}
+                            serviceSelections={serviceSelections}
+                            disabled={disabled}
+                          />
+                        </div>
                       </div>
                     )}
                   </div>
@@ -589,6 +1005,7 @@ function PriceListEditor({
                             locationName: loc?.locationName ?? "",
                             visitPrices: [],
                             subServicePrices: [],
+                            bundleRules: [],
                           },
                         ],
                       }));
@@ -673,7 +1090,17 @@ export function SellerPricingForm({ initialData, serviceSelections, orgSubServic
         })),
         visitPrices: detail.visitPrices,
         subServicePrices: detail.subServicePrices,
-        locationOverrides: detail.locationOverrides,
+        bundleRules: detail.bundleRules.map((b) => ({
+          ...b,
+          targets: b.targets.map((t) => ({ serviceType: t.serviceType, subType: t.subType })),
+        })),
+        locationOverrides: detail.locationOverrides.map((lo) => ({
+          ...lo,
+          bundleRules: lo.bundleRules.map((b) => ({
+            ...b,
+            targets: b.targets.map((t) => ({ serviceType: t.serviceType, subType: t.subType })),
+          })),
+        })),
       });
     } catch {
       toast.error("Failed to load price list");
@@ -689,6 +1116,7 @@ export function SellerPricingForm({ initialData, serviceSelections, orgSubServic
       rules: [],
       visitPrices: [],
       subServicePrices: [],
+      bundleRules: [],
       locationOverrides: [],
     });
   }
@@ -944,6 +1372,7 @@ export function SellerPricingForm({ initialData, serviceSelections, orgSubServic
                   <p className="text-xs text-muted mt-0.5">
                     {pl.isPublic ? "Public" : pl.rules.length > 0 ? pl.rules.map((r) => r.programName ? `${r.buyerName} / ${r.programName}` : r.buyerName).join(", ") : "Restricted"}
                     {" "}· {pl.pricedCount} of {pl.totalCount} priced
+                    {pl.bundleRuleCount > 0 && ` · ${pl.bundleRuleCount} bundle${pl.bundleRuleCount !== 1 ? "s" : ""}`}
                     {pl.overrideLocationCount > 0 && ` · ${pl.overrideLocationCount} location override${pl.overrideLocationCount !== 1 ? "s" : ""}`}
                   </p>
                 </div>

@@ -220,6 +220,42 @@ export async function seedTestData(): Promise<SeedResult> {
     },
   });
 
+  // Bundle rule: flat-rate procedures bundle
+  const procBundle = await prisma.sellerPriceListBundle.create({
+    data: {
+      priceListId: priceList.id,
+      name: "Visits with procedures",
+      ruleType: "flat_rate",
+      price: 150.0,
+      capQuantity: null,
+      includesVisitFee: true,
+    },
+  });
+
+  await prisma.sellerPriceListBundleTarget.createMany({
+    data: [
+      { bundleId: procBundle.id, serviceType: "procedures", subType: null },
+    ],
+  });
+
+  // Bundle rule: flat-rate labs bundle
+  const labsBundle = await prisma.sellerPriceListBundle.create({
+    data: {
+      priceListId: priceList.id,
+      name: "Visits with labs",
+      ruleType: "flat_rate",
+      price: 140.0,
+      capQuantity: null,
+      includesVisitFee: true,
+    },
+  });
+
+  await prisma.sellerPriceListBundleTarget.createMany({
+    data: [
+      { bundleId: labsBundle.id, serviceType: "labs", subType: null },
+    ],
+  });
+
   // Seller onboarding flow (DRAFT)
   await prisma.onboardingFlow.create({
     data: {
@@ -372,6 +408,16 @@ export async function teardownTestData(): Promise<void> {
           { sellerId: { in: affIds } },
         ],
       },
+    }),
+
+    // Price list bundle targets
+    prisma.sellerPriceListBundleTarget.deleteMany({
+      where: { bundle: { priceList: { affiliateId: { in: affIds } } } },
+    }),
+
+    // Price list bundles
+    prisma.sellerPriceListBundle.deleteMany({
+      where: { priceList: { affiliateId: { in: affIds } } },
     }),
 
     // Price list sub-service prices

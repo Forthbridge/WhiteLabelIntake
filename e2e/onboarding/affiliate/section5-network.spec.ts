@@ -125,8 +125,8 @@ test.describe("affiliate section 5: care network", () => {
     await expect(modal.locator('input[name="accept-pricing"]')).toBeVisible({ timeout: 15_000 });
 
     // Bundles should show item count and "Show items" toggle
-    await expect(modal.getByText(/\d+ items? included/)).toBeVisible();
-    await expect(modal.getByText("Show items")).toBeVisible();
+    await expect(modal.getByText(/\d+ items? included/).first()).toBeVisible();
+    await expect(modal.getByText("Show items").first()).toBeVisible();
   });
 
   test("clicking Show items expands bundle to reveal covered items", async ({ page }) => {

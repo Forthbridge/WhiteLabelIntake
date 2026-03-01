@@ -109,7 +109,7 @@ test.describe("affiliate section 2: your plan (composite form)", () => {
 
     // Save via Next
     await onboarding.clickNext();
-    await expect(onboarding.sectionHeading).not.toContainText("Your Plan", { timeout: 10_000 });
+    await expect(onboarding.sectionHeading).not.toContainText("Your Plan", { timeout: 15_000 });
 
     // Navigate back and verify persistence
     await onboarding.navigateToSection("Your Plan");

@@ -68,6 +68,7 @@ export function PlanDefinitionForm({
   useSyncSectionCache(2, s2Data);
   useSyncSectionCache(3, s3Data);
   useSyncSectionCache(9, s9Data);
+  useSyncSectionCache(11, subServiceData);
 
   const { updateStatuses } = useCompletion();
   const adminCtx = useAdminForm();

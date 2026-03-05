@@ -92,7 +92,8 @@ export async function computeSellerStatuses(
     prisma.sellerPriceList.findMany({
       where: { affiliateId },
       include: {
-        _count: { select: { visitPrices: true, subPrices: true } },
+        visitPrices: { where: { pricePerVisit: { not: null } }, select: { id: true }, take: 1 },
+        subPrices: { where: { unitPrice: { not: null } }, select: { id: true }, take: 1 },
       },
     }),
   ]);
@@ -122,7 +123,7 @@ export async function computeSellerStatuses(
   if (sellerPriceLists.length > 0) {
     // Price-list mode: at least one list with pricing data → complete
     const hasPricingData = sellerPriceLists.some(
-      (pl) => pl._count.visitPrices > 0 || pl._count.subPrices > 0
+      (pl) => pl.visitPrices.length > 0 || pl.subPrices.length > 0
     );
     s7 = hasPricingData ? "complete" : "in_progress";
   } else {

@@ -1181,7 +1181,8 @@ export function SellerPricingForm({ serviceSelections, orgSubServices, sellerLoc
 
   async function handleDuplicateList(sourceId: string, sourceName: string) {
     try {
-      await duplicatePriceList(sourceId, `${sourceName} (Copy)`);
+      const { statuses } = await duplicatePriceList(sourceId, `${sourceName} (Copy)`);
+      onStatusUpdate?.(statuses);
       toast.success("Price list duplicated");
       await loadData();
     } catch {
@@ -1192,7 +1193,8 @@ export function SellerPricingForm({ serviceSelections, orgSubServices, sellerLoc
   async function handleDeleteList(listId: string) {
     if (!confirm("Delete this price list?")) return;
     try {
-      await deletePriceList(listId);
+      const statuses = await deletePriceList(listId);
+      onStatusUpdate?.(statuses);
       toast.success("Price list deleted");
       await loadData();
     } catch (err) {
@@ -1444,6 +1446,7 @@ export function SellerPricingForm({ serviceSelections, orgSubServices, sellerLoc
                       onClick={() => handleDuplicateList(pl.id, pl.name)}
                       className="text-xs text-muted hover:text-foreground"
                       title="Duplicate"
+                      aria-label={`Duplicate ${pl.name}`}
                       disabled={disabled}
                     >
                       <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
@@ -1456,6 +1459,7 @@ export function SellerPricingForm({ serviceSelections, orgSubServices, sellerLoc
                       onClick={() => handleDeleteList(pl.id)}
                       className="text-xs text-muted hover:text-error disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-muted"
                       title={priceLists.length <= 1 ? "Cannot delete your only price list" : "Delete"}
+                      aria-label={`Delete ${pl.name}`}
                       disabled={disabled || priceLists.length <= 1}
                     >
                       <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">

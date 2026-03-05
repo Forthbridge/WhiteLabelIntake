@@ -5,10 +5,8 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { useSaveOnNext } from "@/lib/hooks/useSaveOnNext";
-import { saveSellerPricing } from "@/lib/actions/seller-pricing";
 import { listPriceLists, loadPriceList, savePriceList, deletePriceList, duplicatePriceList, loadBuyerOrgs } from "@/lib/actions/price-list";
 import type { PriceListSummary, PriceListDetail, BuyerOrgOption } from "@/lib/actions/price-list";
-import type { SellerPricingData } from "@/lib/validations/seller-pricing";
 import type { PriceListData, BundleRuleData } from "@/lib/validations/price-list";
 import type { Section11Data } from "@/lib/validations/section11";
 import { SUB_SERVICE_TYPES, getSubServiceLabel } from "@/lib/validations/section11";
@@ -30,7 +28,6 @@ interface SellerLocationOption {
 }
 
 interface Props {
-  initialData: SellerPricingData;
   serviceSelections: ServiceSelection[];
   orgSubServices?: Section11Data;
   sellerLocations?: SellerLocationOption[];
@@ -1100,9 +1097,7 @@ function PriceListEditor({
 
 // ─── Main Component: Price List Manager ──────────────────────────────
 
-export function SellerPricingForm({ initialData, serviceSelections, orgSubServices, sellerLocations, onNavigate, onStatusUpdate, disabled }: Props) {
-  // Legacy save (for default price list compatibility)
-  const [legacyData, setLegacyData] = useState<SellerPricingData>(initialData);
+export function SellerPricingForm({ serviceSelections, orgSubServices, sellerLocations, onNavigate, onStatusUpdate, disabled }: Props) {
   const updateSellerCache = useSellerCacheUpdater();
 
   // Price list state
@@ -1129,15 +1124,9 @@ export function SellerPricingForm({ initialData, serviceSelections, orgSubServic
     }
   }
 
-  // Legacy save for backwards compat (saves to SellerServiceOffering + SellerOrgSubService)
-  const onLegacySave = useCallback(async (d: SellerPricingData) => {
-    const statuses = await saveSellerPricing(d);
-    updateSellerCache("pricing", d);
-    onStatusUpdate?.(statuses);
-    return {};
-  }, [onStatusUpdate, updateSellerCache]);
-
-  const { save, isDirty } = useSaveOnNext({ data: legacyData, onSave: onLegacySave });
+  // Price lists save via their own "Save Price List" button; useSaveOnNext is a no-op passthrough
+  const noOpSave = useCallback(async () => ({}), []);
+  const { save, isDirty } = useSaveOnNext({ data: {}, onSave: noOpSave });
   useReportDirty("S-7", isDirty);
 
   // ─── Price List CRUD handlers ───────────────────────────────────
@@ -1419,97 +1408,76 @@ export function SellerPricingForm({ initialData, serviceSelections, orgSubServic
     );
   }
 
-  // Show price list manager if price lists exist, otherwise show legacy editor
-  if (priceLists.length > 0) {
-    return (
-      <div className="flex flex-col gap-6">
-        <Card>
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-base font-heading font-semibold">Your Price Lists</h3>
-            <Button variant="secondary" type="button" onClick={handleNewList} disabled={disabled}>
-              + New List
-            </Button>
-          </div>
-
-          <div className="flex flex-col gap-3">
-            {priceLists.map((pl) => (
-              <div key={pl.id} className="border border-border rounded-lg p-4 flex items-center justify-between">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-medium text-foreground">{pl.name}</p>
-                  </div>
-                  <p className="text-xs text-muted mt-0.5">
-                    {pl.isPublic ? "Public" : pl.rules.length > 0 ? pl.rules.map((r) => r.programName ? `${r.buyerName} / ${r.programName}` : r.buyerName).join(", ") : "Restricted"}
-                    {" "}· {pl.pricedCount} of {pl.totalCount} priced
-                    {pl.bundleRuleCount > 0 && ` · ${pl.bundleRuleCount} bundle${pl.bundleRuleCount !== 1 ? "s" : ""}`}
-                    {pl.overrideLocationCount > 0 && ` · ${pl.overrideLocationCount} location override${pl.overrideLocationCount !== 1 ? "s" : ""}`}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button variant="secondary" type="button" onClick={() => handleEditList(pl.id)} disabled={disabled} className="!text-xs">
-                    Edit
-                  </Button>
-                  <button
-                    type="button"
-                    onClick={() => handleDuplicateList(pl.id, pl.name)}
-                    className="text-xs text-muted hover:text-foreground"
-                    title="Duplicate"
-                    disabled={disabled}
-                  >
-                    <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                      <path d="M7 3.5A1.5 1.5 0 018.5 2h3.879a1.5 1.5 0 011.06.44l3.122 3.12A1.5 1.5 0 0117 6.622V12.5a1.5 1.5 0 01-1.5 1.5h-1v-3.379a3 3 0 00-.879-2.121L10.5 5.379A3 3 0 008.379 4.5H7v-1z" />
-                      <path d="M4.5 6A1.5 1.5 0 003 7.5v9A1.5 1.5 0 004.5 18h7a1.5 1.5 0 001.5-1.5v-5.879a1.5 1.5 0 00-.44-1.06L9.44 6.44A1.5 1.5 0 008.378 6H4.5z" />
-                    </svg>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteList(pl.id)}
-                    className="text-xs text-muted hover:text-error disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-muted"
-                    title={priceLists.length <= 1 ? "Cannot delete your only price list" : "Delete"}
-                    disabled={disabled || priceLists.length <= 1}
-                  >
-                    <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                      <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.519.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clipRule="evenodd" />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </Card>
-
-        <SellerSectionNavButtons currentSection="S-7" onNavigate={onNavigate} onSave={save} isDirty={isDirty} disabled={disabled} />
-      </div>
-    );
-  }
-
-  // Legacy mode: no price lists yet — show the old flat editor with a migration prompt
+  // Price list manager — always shown (empty state when no lists exist)
   return (
     <div className="flex flex-col gap-6">
-      {/* Legacy pricing editor (still saves to SellerServiceOffering/SellerOrgSubService) */}
-      <PriceListEditor
-        data={{
-          name: "Default",
-          isPublic: true,
-          visitPrices: legacyData.visitPrices,
-          subServicePrices: legacyData.subServicePrices,
-        }}
-        setData={(fn) => {
-          const result = fn({
-            name: "Default",
-            isPublic: true,
-            visitPrices: legacyData.visitPrices,
-            subServicePrices: legacyData.subServicePrices,
-          });
-          setLegacyData({
-            visitPrices: result.visitPrices,
-            subServicePrices: result.subServicePrices,
-          });
-        }}
-        serviceSelections={serviceSelections}
-        orgSubServices={orgSubServices}
-        disabled={disabled}
-      />
+      <Card>
+        {priceLists.length > 0 ? (
+          <>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-base font-heading font-semibold">Your Price Lists</h3>
+              <Button variant="secondary" type="button" onClick={handleNewList} disabled={disabled}>
+                + New List
+              </Button>
+            </div>
+
+            <div className="flex flex-col gap-3">
+              {priceLists.map((pl) => (
+                <div key={pl.id} className="border border-border rounded-lg p-4 flex items-center justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium text-foreground">{pl.name}</p>
+                    </div>
+                    <p className="text-xs text-muted mt-0.5">
+                      {pl.isPublic ? "Public" : pl.rules.length > 0 ? pl.rules.map((r) => r.programName ? `${r.buyerName} / ${r.programName}` : r.buyerName).join(", ") : "Restricted"}
+                      {" "}· {pl.pricedCount} of {pl.totalCount} priced
+                      {pl.bundleRuleCount > 0 && ` · ${pl.bundleRuleCount} bundle${pl.bundleRuleCount !== 1 ? "s" : ""}`}
+                      {pl.overrideLocationCount > 0 && ` · ${pl.overrideLocationCount} location override${pl.overrideLocationCount !== 1 ? "s" : ""}`}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button variant="secondary" type="button" onClick={() => handleEditList(pl.id)} disabled={disabled} className="!text-xs">
+                      Edit
+                    </Button>
+                    <button
+                      type="button"
+                      onClick={() => handleDuplicateList(pl.id, pl.name)}
+                      className="text-xs text-muted hover:text-foreground"
+                      title="Duplicate"
+                      disabled={disabled}
+                    >
+                      <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                        <path d="M7 3.5A1.5 1.5 0 018.5 2h3.879a1.5 1.5 0 011.06.44l3.122 3.12A1.5 1.5 0 0117 6.622V12.5a1.5 1.5 0 01-1.5 1.5h-1v-3.379a3 3 0 00-.879-2.121L10.5 5.379A3 3 0 008.379 4.5H7v-1z" />
+                        <path d="M4.5 6A1.5 1.5 0 003 7.5v9A1.5 1.5 0 004.5 18h7a1.5 1.5 0 001.5-1.5v-5.879a1.5 1.5 0 00-.44-1.06L9.44 6.44A1.5 1.5 0 008.378 6H4.5z" />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteList(pl.id)}
+                      className="text-xs text-muted hover:text-error disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-muted"
+                      title={priceLists.length <= 1 ? "Cannot delete your only price list" : "Delete"}
+                      disabled={disabled || priceLists.length <= 1}
+                    >
+                      <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.519.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clipRule="evenodd" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-10 gap-3">
+            <p className="text-sm text-muted text-center">
+              You haven&apos;t created any price lists yet. Create one to set your pricing for buyers.
+            </p>
+            <Button variant="cta" type="button" onClick={handleNewList} disabled={disabled}>
+              Create Your First Price List
+            </Button>
+          </div>
+        )}
+      </Card>
 
       <SellerSectionNavButtons currentSection="S-7" onNavigate={onNavigate} onSave={save} isDirty={isDirty} disabled={disabled} />
     </div>

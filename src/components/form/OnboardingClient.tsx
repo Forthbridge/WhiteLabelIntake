@@ -370,10 +370,8 @@ function OnboardingClientInner({
           />
         );
       case "S-7": {
-        const defaultPricing: SellerPricingData = { visitPrices: [], subServicePrices: [] };
         return (
           <SellerPricingForm
-            initialData={sellerCache?.pricing ?? defaultPricing}
             serviceSelections={sellerServices.services}
             orgSubServices={sellerCache?.orgSubServices}
             sellerLocations={(sellerCache?.locations ?? []).filter((l) => l.id).map((l) => ({ id: l.id!, locationName: l.locationName ?? "" }))}

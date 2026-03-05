@@ -72,7 +72,7 @@ export async function saveSellerOrgInfo(
 export async function computeSellerStatuses(
   affiliateId: string
 ): Promise<Record<SellerSectionId, CompletionStatus>> {
-  const [profile, sellerLocations, sellerProviders, offerings, sellerLab, flows, orgSubServices] = await Promise.all([
+  const [profile, sellerLocations, sellerProviders, offerings, sellerLab, flows, orgSubServices, sellerPriceLists] = await Promise.all([
     prisma.sellerProfile.findUnique({ where: { affiliateId } }),
     prisma.sellerLocation.findMany({
       where: { affiliateId },
@@ -88,6 +88,12 @@ export async function computeSellerStatuses(
     prisma.sellerOrgSubService.findMany({
       where: { affiliateId, selected: true },
       select: { unitPrice: true },
+    }),
+    prisma.sellerPriceList.findMany({
+      where: { affiliateId },
+      include: {
+        _count: { select: { visitPrices: true, subPrices: true } },
+      },
     }),
   ]);
 
@@ -111,22 +117,31 @@ export async function computeSellerStatuses(
   const hasCareService = selectedOfferings.some((o) => o.serviceType === "clinic_visit");
   const s4: CompletionStatus = offerings.length === 0 ? "not_started" : (selectedOfferings.length > 0 && hasCareService) ? "complete" : "in_progress";
 
-  // S-7: Price List — all selected care services must have visit prices AND all selected sub-services must have unitPrice
-  const careOfferings = offerings.filter(
-    (o) => o.selected && o.serviceType === "clinic_visit"
-  );
-  const visitsPriced = careOfferings.filter((o) => o.basePricePerVisit != null).length;
-  const visitsTotal = careOfferings.length;
-  const subsPriced = orgSubServices.filter((s) => s.unitPrice != null).length;
-  const subsTotal = orgSubServices.length;
-  const totalPriced = visitsPriced + subsPriced;
-  const totalItems = visitsTotal + subsTotal;
+  // S-7: Price List — check price lists first, fall back to legacy tables
   let s7: CompletionStatus = "not_started";
-  if (totalItems > 0) {
-    if (totalPriced === totalItems) {
-      s7 = "complete";
-    } else if (totalPriced > 0) {
-      s7 = "in_progress";
+  if (sellerPriceLists.length > 0) {
+    // Price-list mode: at least one list with pricing data → complete
+    const hasPricingData = sellerPriceLists.some(
+      (pl) => pl._count.visitPrices > 0 || pl._count.subPrices > 0
+    );
+    s7 = hasPricingData ? "complete" : "in_progress";
+  } else {
+    // Legacy mode: check SellerServiceOffering.basePricePerVisit + SellerOrgSubService.unitPrice
+    const careOfferings = offerings.filter(
+      (o) => o.selected && o.serviceType === "clinic_visit"
+    );
+    const visitsPriced = careOfferings.filter((o) => o.basePricePerVisit != null).length;
+    const visitsTotal = careOfferings.length;
+    const subsPriced = orgSubServices.filter((s) => s.unitPrice != null).length;
+    const subsTotal = orgSubServices.length;
+    const totalPriced = visitsPriced + subsPriced;
+    const totalItems = visitsTotal + subsTotal;
+    if (totalItems > 0) {
+      if (totalPriced === totalItems) {
+        s7 = "complete";
+      } else if (totalPriced > 0) {
+        s7 = "in_progress";
+      }
     }
   }
 

@@ -1126,8 +1126,9 @@ export function SellerPricingForm({ serviceSelections, orgSubServices, sellerLoc
 
   // Price lists save via their own "Save Price List" button; useSaveOnNext is a no-op passthrough
   const noOpSave = useCallback(async () => ({}), []);
-  const { save, isDirty } = useSaveOnNext({ data: {}, onSave: noOpSave });
-  useReportDirty("S-7", isDirty);
+  const { save } = useSaveOnNext({ data: {}, onSave: noOpSave });
+  // Track dirty state based on whether the user has an unsaved editor open
+  useReportDirty("S-7", editingList !== null);
 
   // ─── Price List CRUD handlers ───────────────────────────────────
 
@@ -1391,7 +1392,7 @@ export function SellerPricingForm({ serviceSelections, orgSubServices, sellerLoc
             No pricing-eligible services selected. Go back to Services Offered and select at least one service.
           </p>
         </Card>
-        <SellerSectionNavButtons currentSection="S-7" onNavigate={onNavigate} onSave={save} isDirty={isDirty} disabled={disabled} />
+        <SellerSectionNavButtons currentSection="S-7" onNavigate={onNavigate} onSave={save} isDirty={editingList !== null} disabled={disabled} />
       </div>
     );
   }
@@ -1405,7 +1406,7 @@ export function SellerPricingForm({ serviceSelections, orgSubServices, sellerLoc
             <p className="text-sm text-muted">Loading price lists...</p>
           </div>
         </Card>
-        <SellerSectionNavButtons currentSection="S-7" onNavigate={onNavigate} onSave={save} isDirty={isDirty} disabled={disabled} />
+        <SellerSectionNavButtons currentSection="S-7" onNavigate={onNavigate} onSave={save} isDirty={editingList !== null} disabled={disabled} />
       </div>
     );
   }
@@ -1483,7 +1484,7 @@ export function SellerPricingForm({ serviceSelections, orgSubServices, sellerLoc
         )}
       </Card>
 
-      <SellerSectionNavButtons currentSection="S-7" onNavigate={onNavigate} onSave={save} isDirty={isDirty} disabled={disabled} />
+      <SellerSectionNavButtons currentSection="S-7" onNavigate={onNavigate} onSave={save} isDirty={editingList !== null} disabled={disabled} />
     </div>
   );
 }

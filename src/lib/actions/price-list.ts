@@ -529,7 +529,7 @@ export async function savePriceList(
 
 // ─── Delete ─────────────────────────────────────────────────────────
 
-export async function deletePriceList(priceListId: string): Promise<void> {
+export async function deletePriceList(priceListId: string): Promise<Record<SellerSectionId, CompletionStatus>> {
   const ctx = await getSessionContext();
 
   const pl = await prisma.sellerPriceList.findFirst({
@@ -542,6 +542,8 @@ export async function deletePriceList(priceListId: string): Promise<void> {
   if (count <= 1) throw new Error("Cannot delete your only price list");
 
   await prisma.sellerPriceList.delete({ where: { id: priceListId } });
+
+  return computeSellerStatuses(ctx.affiliateId);
 }
 
 // ─── Duplicate ──────────────────────────────────────────────────────
@@ -549,7 +551,7 @@ export async function deletePriceList(priceListId: string): Promise<void> {
 export async function duplicatePriceList(
   sourceId: string,
   newName: string
-): Promise<string> {
+): Promise<{ id: string; statuses: Record<SellerSectionId, CompletionStatus> }> {
   const ctx = await getSessionContext();
 
   const source = await prisma.sellerPriceList.findFirst({
@@ -640,7 +642,8 @@ export async function duplicatePriceList(
     });
   }
 
-  return newPl.id;
+  const statuses = await computeSellerStatuses(ctx.affiliateId);
+  return { id: newPl.id, statuses };
 }
 
 // ─── Load Eligible Price Lists (buyer-facing) ───────────────────────

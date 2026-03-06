@@ -422,7 +422,7 @@ export async function loadNetworkData(selectedProgramId?: string): Promise<Netwo
         services: enabledServices,
         pricing,
         hasPriceLists: sellerHasMultiplePriceLists,
-        hasPricing: pricingItems.length > 0 || sellerHasMultiplePriceLists,
+        hasPricing: pricingItems.length > 0,
       });
     }
   }
